@@ -42,8 +42,9 @@ export async function getSectorSpotlight() {
   return await fetchAPI('/currencies/sector-spotlight');
 }
 
-export async function getETFList() {
-  return await fetchAPI('/etfs');
+export async function getETFList(params = { symbol: 'BTC', country_code: 'US' }) {
+  const qs = new URLSearchParams(params).toString();
+  return await fetchAPI(`/etfs?${qs}`);
 }
 
 export async function getETFSummaryHistory() {
@@ -67,7 +68,8 @@ export async function getIndexMarketSnapshot(ticker) {
 }
 
 export async function getIndexKlines(ticker, params = {}) {
-  const qs = new URLSearchParams(params).toString();
+  // SoSoValue API requires 'interval' parameter for klines
+  const qs = new URLSearchParams({ interval: '1d', ...params }).toString();
   return await fetchAPI(`/indices/${ticker}/klines${qs ? '?' + qs : ''}`);
 }
 
