@@ -33,7 +33,8 @@ export default function MacroRadar() {
               date: e.date || new Date().toISOString(),
               title: title,
               importance: 'medium', // Default to medium as api does not provide it
-              country: 'USA'
+              country: 'USA',
+              category: 'Economy'
             }))
           }
           // Fallback if the structure is flat
@@ -42,6 +43,7 @@ export default function MacroRadar() {
             title: e.title || e.event_name || 'Unknown Event',
             importance: (e.impact || e.importance || 'medium').toLowerCase(),
             country: e.country || 'USA',
+            category: e.category || 'Economy',
             previous: e.previous,
             forecast: e.forecast,
             actual: e.actual
@@ -76,7 +78,7 @@ export default function MacroRadar() {
         <div className="card fade-in stagger-3">
           <div className="card-title">⏰ Next Event</div>
           <div className="card-value" style={{ color: 'var(--accent-yellow)', fontSize: 20 }}>
-            {events[0]?.name?.substring(0, 15)}...
+            {events[0]?.title?.substring(0, 20) || 'None'}
           </div>
           <div className="badge badge-yellow" style={{ marginTop: 8 }}>{daysUntil(events[0]?.date)}</div>
         </div>
@@ -102,7 +104,7 @@ export default function MacroRadar() {
               </div>
               <div className={`event-importance ${event.importance}`} />
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>{event.name}</div>
+                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>{event.title}</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 12 }}>
                   <span className="badge badge-purple">{event.category}</span>
                   <span style={{ color: 'var(--text-tertiary)' }}>{weekday}</span>
