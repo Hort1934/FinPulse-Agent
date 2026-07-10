@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { createChart, AreaSeries } from 'lightweight-charts'
-import { getETFList, getIndexMarketSnapshot, getIndexConstituents, getIndexKlines } from '../services/api'
+import { getETFList, getETFMarketSnapshot, getIndexMarketSnapshot, getIndexConstituents, getIndexKlines } from '../services/api'
 
 const PIE_COLORS = ['#22d3ee', '#3b82f6', '#a855f7', '#10b981', '#f59e0b', '#ef4444', '#f97316', '#06b6d4']
 
@@ -120,30 +120,47 @@ export default function IndexHub() {
     async function load() {
       // Fetch ETFs
       const etfList = await getETFList()
-      if (etfList) {
-        // Assume etfList is array of ETFs or contains a data array
+      let etfsWithData = []
+      if (etfList && etfList.code === undefined) {
         const etfArray = Array.isArray(etfList) ? etfList : (etfList.data || [])
-        setEtfs(etfArray.slice(0, 5))
+        const topEtfs = etfArray.slice(0, 5)
+        
+        etfsWithData = await Promise.all(topEtfs.map(async (etf) => {
+          const snap = await getETFMarketSnapshot(etf.ticker)
+          return {
+            ...etf,
+            aum: snap?.net_assets || 0,
+            flow_1d: snap?.net_inflow || 0,
+            price: snap?.mkt_price || 0,
+            change: snap?.change_pct_24h ? snap.change_pct_24h * 100 : 0
+          }
+        }))
       }
+      setEtfs(etfsWithData)
 
       // Fetch Indices (we manually fetch 2 for demo to save rate limits)
       const targetIndices = [
-        { ticker: 'ssimag7', name: 'SSI MAG7', description: 'Top 7 Crypto Assets' },
+        { ticker: 'ssiMAG7', name: 'SSI MAG7', description: 'Top 7 Crypto Assets' },
         { ticker: 'ssiDeFi', name: 'SSI DeFi', description: 'DeFi Sector Index' }
       ]
-      const idxData = []
+      let idxData = []
       for (const idx of targetIndices) {
-        const snap = await getIndexMarketSnapshot(idx.ticker)
-        if (snap) {
-          idxData.push({
-            ...idx,
-            price: snap.price,
-            change: snap.change_pct_24h * 100
-          })
+        let snap = await getIndexMarketSnapshot(idx.ticker)
+        if (snap && snap.code === undefined) {
+          if (snap.data) snap = snap.data;
+          
+          if (snap.price !== undefined) {
+            idxData.push({
+              ...idx,
+              price: snap.price,
+              change: (snap.change_pct_24h || 0) * 100
+            })
+          }
         }
       }
+      
+      setIndices(idxData)
       if (idxData.length > 0) {
-        setIndices(idxData)
         setSelectedIndex(idxData[0].ticker)
       }
     }
@@ -155,22 +172,27 @@ export default function IndexHub() {
       if (!selectedIndex) return
       
       const cons = await getIndexConstituents(selectedIndex)
-      if (cons) {
+      if (cons && cons.code === undefined) {
         const consArray = Array.isArray(cons) ? cons : (cons.data || [])
         setConstituents(consArray.map(c => ({
           name: c.symbol?.toUpperCase() || c.name,
           weight: (c.weight || c.percent) * 100,
         })))
+      } else {
+        setConstituents([])
       }
 
       const days = timeframe === '3M' ? 90 : timeframe === '6M' ? 180 : 365
       const klines = await getIndexKlines(selectedIndex, { limit: days })
-      if (klines) {
-        const klineArray = Array.isArray(klines) ? klines : (klines.data || [])
+      if (klines && klines.code === undefined) {
+        let klineArray = Array.isArray(klines) ? klines : (klines.data || [])
+        
         setChartData(klineArray.map(k => ({
           time: Math.floor(k.timestamp / 1000),
           value: k.close
         })))
+      } else {
+        setChartData([])
       }
     }
     loadDetails()
