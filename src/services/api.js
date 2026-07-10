@@ -102,6 +102,10 @@ export async function getFundraisingProjects() {
   return await fetchAPI('/fundraising/projects');
 }
 
+export async function getFundraisingProjectDetails(projectId) {
+  return await fetchAPI(`/fundraising/projects/${projectId}`);
+}
+
 export async function getMacroEvents(params = {}) {
   const qs = new URLSearchParams(params).toString();
   return await fetchAPI(`/macro/events${qs ? '?' + qs : ''}`);

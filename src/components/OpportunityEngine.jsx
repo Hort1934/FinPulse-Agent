@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getFundraisingProjects, getMarketSnapshot } from '../services/api'
+import { getFundraisingProjects, getFundraisingProjectDetails, getMarketSnapshot } from '../services/api'
 
 function generateSignals(marketData) {
   return marketData.map(coin => {
@@ -51,34 +51,82 @@ export default function OpportunityEngine() {
   useEffect(() => {
     async function load() {
       setLoading(true)
+      
+      // Fetch list of fundraising projects and slice the last 15
       const funds = await getFundraisingProjects()
-      if (funds) {
+      if (funds && funds.code === undefined) {
         const fundsArray = Array.isArray(funds) ? funds : (funds.list || funds.data || [])
-        setFundraising(fundsArray.map(f => ({
-          name: f.project_name || f.name,
-          amount: f.amount || f.funding_amount,
-          date: f.date || f.funding_date,
-          investors: f.investors || [],
-          sector: f.sector || 'DeFi',
-          valuation: f.valuation || null
+        // Projects are usually appended, so the newest are at the end. We reverse to show newest first.
+        const recentProjects = fundsArray.slice(-15).reverse()
+        
+        // Show placeholders immediately
+        setFundraising(recentProjects.map(f => ({
+          name: f.project_name || f.name || 'Unknown',
+          amount: 0,
+          date: '-',
+          investors: [],
+          sector: 'Crypto',
+          round: 'Loading...'
         })))
+
+        // Fetch details for these 15 projects
+        let currentFunds = []
+        for (const proj of recentProjects) {
+          try {
+            const details = await getFundraisingProjectDetails(proj.project_id)
+            if (details && details.data) {
+              const d = details.data
+              const rounds = d.fundraising_rounds || []
+              if (rounds.length > 0) {
+                const latestRound = rounds[rounds.length - 1]
+                const amountNum = parseFloat(latestRound.amount) || 0;
+                // Only push if there's an actual valid round with an amount
+                if (amountNum > 0) {
+                  currentFunds.push({
+                    name: proj.project_name,
+                    amount: amountNum * 1e6, // API returns in millions (e.g. "140" -> 140M)
+                    date: latestRound.timestamp ? new Date(parseInt(latestRound.timestamp)).toLocaleDateString() : '-',
+                    investors: latestRound.investors ? latestRound.investors.map(i => i.name).slice(0, 3) : [],
+                    sector: d.sector || 'Crypto',
+                    round: latestRound.round || 'Round'
+                  })
+                }
+              }
+            }
+          } catch(e) {}
+        }
+        
+        // Sort by timestamp if needed, but they are already ordered
+        setFundraising(currentFunds)
       }
 
       // Fetch sample of market data for signals
-      const topCoins = ['1673723677362319866', '1673723677362319867', '1673723677362319875', '1673723677362319869', '1673723677362319871']
+      const topCoinsMap = {
+        '1673723677362319866': { symbol: 'BTC', name: 'Bitcoin' },
+        '1673723677362319867': { symbol: 'ETH', name: 'Ethereum' },
+        '1673723677362319875': { symbol: 'SOL', name: 'Solana' },
+        '1673723677362319869': { symbol: 'BNB', name: 'Binance Coin' },
+        '1673723677362319871': { symbol: 'XRP', name: 'Ripple' }
+      }
+      
       const realMarketData = []
-      for (const id of topCoins) {
-        const snap = await getMarketSnapshot(id)
-        if (snap) {
-          realMarketData.push({
-            id: snap.symbol || id,
-            name: snap.symbol?.toUpperCase() || id,
-            price: snap.price || 0,
-            change: (snap.change_pct_24h || 0) * 100,
-            marketCap: snap.marketcap || 1,
-            volume: snap.turnover_24h || 0,
-          })
-        }
+      for (const id of Object.keys(topCoinsMap)) {
+        try {
+          const snap = await getMarketSnapshot(id)
+          if (snap && snap.code === 0) {
+            const s = snap.data || snap
+            realMarketData.push({
+              id: id,
+              name: topCoinsMap[id].symbol,
+              fullName: topCoinsMap[id].name,
+              price: s.price || 0,
+              change: (s.change_pct_24h || 0) * 100,
+              marketCap: s.marketcap || 1,
+              volume: s.turnover_24h || 0,
+              rank: s.marketcap_rank || '#'
+            })
+          }
+        } catch(e) {}
       }
       setMarketData(realMarketData)
       setLoading(false)
