@@ -52,55 +52,7 @@ export default function OpportunityEngine() {
     async function load() {
       setLoading(true)
       
-      // Fetch list of fundraising projects and slice the last 15
-      const funds = await getFundraisingProjects()
-      if (funds && funds.code === undefined) {
-        const fundsArray = Array.isArray(funds) ? funds : (funds.list || funds.data || [])
-        // Projects are usually appended, so the newest are at the end. We reverse to show newest first.
-        const recentProjects = fundsArray.slice(-15).reverse()
-        
-        // Show placeholders immediately
-        setFundraising(recentProjects.map(f => ({
-          name: f.project_name || f.name || 'Unknown',
-          amount: 0,
-          date: '-',
-          investors: [],
-          sector: 'Crypto',
-          round: 'Loading...'
-        })))
-
-        // Fetch details for these 15 projects
-        let currentFunds = []
-        for (const proj of recentProjects) {
-          try {
-            const details = await getFundraisingProjectDetails(proj.project_id)
-            if (details && details.data) {
-              const d = details.data
-              const rounds = d.fundraising_rounds || []
-              if (rounds.length > 0) {
-                const latestRound = rounds[rounds.length - 1]
-                const amountNum = parseFloat(latestRound.amount) || 0;
-                // Only push if there's an actual valid round with an amount
-                if (amountNum > 0) {
-                  currentFunds.push({
-                    name: proj.project_name,
-                    amount: amountNum * 1e6, // API returns in millions (e.g. "140" -> 140M)
-                    date: latestRound.timestamp ? new Date(parseInt(latestRound.timestamp)).toLocaleDateString() : '-',
-                    investors: latestRound.investors ? latestRound.investors.map(i => i.name).slice(0, 3) : [],
-                    sector: d.sector || 'Crypto',
-                    round: latestRound.round || 'Round'
-                  })
-                }
-              }
-            }
-          } catch(e) {}
-        }
-        
-        // Sort by timestamp if needed, but they are already ordered
-        setFundraising(currentFunds)
-      }
-
-      // Fetch sample of market data for signals
+      // Fetch sample of market data for signals FIRST
       const topCoinsMap = {
         '1673723677362319866': { symbol: 'BTC', name: 'Bitcoin' },
         '1673723677362319867': { symbol: 'ETH', name: 'Ethereum' },
@@ -127,8 +79,55 @@ export default function OpportunityEngine() {
             })
           }
         } catch(e) {}
+        // Sleep to avoid SoSoValue rate limit (429)
+        await new Promise(r => setTimeout(r, 200))
       }
       setMarketData(realMarketData)
+
+      // Fetch list of fundraising projects and slice the last 8
+      try {
+        const funds = await getFundraisingProjects()
+        if (funds && funds.code === undefined) {
+          const fundsArray = Array.isArray(funds) ? funds : (funds.list || funds.data || [])
+          const recentProjects = fundsArray.slice(-8).reverse()
+          
+          setFundraising(recentProjects.map(f => ({
+            name: f.project_name || f.name || 'Unknown',
+            amountDisplay: '...',
+            date: '-',
+            investors: [],
+            sector: 'Crypto',
+            round: 'Loading...'
+          })))
+
+          let currentFunds = []
+          for (const proj of recentProjects) {
+            try {
+              await new Promise(r => setTimeout(r, 400)) // Avoid rate limits
+              const details = await getFundraisingProjectDetails(proj.project_id)
+              if (details && details.data) {
+                const d = details.data
+                const rounds = d.fundraising_rounds || []
+                if (rounds.length > 0) {
+                  const latestRound = rounds[rounds.length - 1]
+                  const amountNum = parseFloat(latestRound.amount) || 0;
+                  currentFunds.push({
+                    name: proj.project_name,
+                    amountDisplay: amountNum > 0 ? `$${amountNum.toFixed(1)}M` : 'Undisclosed',
+                    date: latestRound.timestamp ? new Date(parseInt(latestRound.timestamp)).toLocaleDateString() : '-',
+                    investors: latestRound.investors ? latestRound.investors.map(i => i.name).slice(0, 3) : [],
+                    sector: d.sector || 'Crypto',
+                    round: latestRound.round || 'Round'
+                  })
+                }
+              }
+            } catch(e) {}
+          }
+          
+          setFundraising(currentFunds)
+        }
+      } catch (e) {}
+
       setLoading(false)
     }
     load()
@@ -217,7 +216,7 @@ export default function OpportunityEngine() {
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontSize: 20, fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--accent-green)' }}>
-                      ${(project.amount / 1e6).toFixed(0)}M
+                      {project.amountDisplay}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{project.round}</div>
                   </div>
