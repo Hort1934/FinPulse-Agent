@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getBTCTreasuries } from '../services/api'
+import { getBTCTreasuries, getBTCPurchaseHistory, getMarketSnapshot } from '../services/api'
 
 function formatBig(num) {
   if (num >= 1e12) return `$${(num / 1e12).toFixed(2)}T`
@@ -14,18 +14,65 @@ export default function TreasuryMonitor() {
 
   useEffect(() => {
     async function load() {
+      // 1. Fetch current BTC price
+      let btcPrice = 90000; // fallback if API fails
+      try {
+        const btcSnap = await getMarketSnapshot('bitcoin');
+        if (btcSnap && btcSnap.price) {
+          btcPrice = btcSnap.price;
+        } else if (btcSnap && btcSnap.data && btcSnap.data.price) {
+          btcPrice = btcSnap.data.price;
+        }
+      } catch(e) {}
+
+      // 2. Fetch list of treasuries
       const data = await getBTCTreasuries()
-      if (data) {
+      if (data && data.code === undefined) {
         const treasuryArray = Array.isArray(data) ? data : (data.list || data.data || [])
-        // Map data to match expected format, providing safe fallbacks for missing properties
-        setTreasuries(treasuryArray.map(t => ({
-          name: t.name || t.company_name || 'Unknown',
+        
+        let currentTreasuries = treasuryArray.map(t => ({
+          company: t.name || t.company_name || 'Unknown',
           ticker: t.ticker || t.symbol || 'N/A',
-          btcHeld: t.btc_held || t.total_holdings || 0,
-          valueUsd: t.value_usd || t.total_value_usd || 0,
-          percentOfSupply: t.percent_of_supply || 0,
-          avgCost: t.avg_cost || 0
-        })))
+          btcHeld: 0,
+          valueUsd: 0,
+          percentOfSupply: 0,
+          avgCost: 0,
+          rank: 0,
+          lastPurchase: '-'
+        }));
+        
+        // Show placeholders immediately
+        setTreasuries(currentTreasuries);
+
+        // Fetch details in small chunks to avoid rate limiting
+        const chunkSize = 5;
+        for (let i = 0; i < currentTreasuries.length; i += chunkSize) {
+          const chunk = currentTreasuries.slice(i, i + chunkSize);
+          
+          await Promise.all(chunk.map(async (t) => {
+            try {
+              let hist = await getBTCPurchaseHistory(t.ticker);
+              if (hist && hist.code === undefined) {
+                const histArray = Array.isArray(hist) ? hist : (hist.data || []);
+                if (histArray.length > 0) {
+                  const latest = histArray[0];
+                  const btcHeld = parseFloat(latest.btc_holding) || 0;
+                  t.btcHeld = btcHeld;
+                  t.valueUsd = btcHeld * btcPrice;
+                  t.percentOfSupply = Number(((btcHeld / 21000000) * 100).toFixed(4));
+                  t.lastPurchase = latest.date || '-';
+                }
+              }
+            } catch (err) {}
+          }));
+
+          // Update state and sort by holding
+          currentTreasuries = [...currentTreasuries].sort((a, b) => b.btcHeld - a.btcHeld).map((t, idx) => ({...t, rank: idx + 1}));
+          setTreasuries([...currentTreasuries]);
+          
+          // Wait 600ms between chunks
+          await new Promise(r => setTimeout(r, 600));
+        }
       }
     }
     load()

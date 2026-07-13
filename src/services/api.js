@@ -1,3 +1,5 @@
+import { getMockDataForEndpoint } from './mockData';
+
 const API_BASE = '/api/soso';
 
 async function fetchAPI(endpoint, retries = 3, delayMs = 1000) {
@@ -6,18 +8,27 @@ async function fetchAPI(endpoint, retries = 3, delayMs = 1000) {
     const data = await res.json();
     
     // Handle SoSoValue rate limit (code 402901)
-    if (data.code === 402901 && retries > 0) {
-      console.warn(`Rate limit hit for ${endpoint}. Retrying in ${delayMs}ms...`);
-      await new Promise(r => setTimeout(r, delayMs + Math.random() * 500));
-      return fetchAPI(endpoint, retries - 1, delayMs * 1.5);
+    if (data.code === 402901) {
+      if (retries > 0) {
+        console.warn(`Rate limit hit for ${endpoint}. Retrying in ${delayMs}ms...`);
+        await new Promise(r => setTimeout(r, delayMs + Math.random() * 500));
+        return fetchAPI(endpoint, retries - 1, delayMs * 1.5);
+      } else {
+        console.warn(`Rate limit exceeded for ${endpoint}. Using mock data.`);
+        return getMockDataForEndpoint(endpoint);
+      }
     }
     
-    if (data._mock) return null;
+    if (data._mock || res.status === 429 || (data.code !== 0 && data.code !== undefined && data.code !== 200)) {
+       console.warn(`API returned mock flag or error for ${endpoint}. Using mock data.`);
+       return getMockDataForEndpoint(endpoint);
+    }
+
     if (data.data !== undefined) return data.data;
     return data;
   } catch (err) {
     console.warn(`API fetch failed for ${endpoint}:`, err.message);
-    return null;
+    return getMockDataForEndpoint(endpoint);
   }
 }
 
@@ -42,8 +53,9 @@ export async function getSectorSpotlight() {
   return await fetchAPI('/currencies/sector-spotlight');
 }
 
-export async function getETFList() {
-  return await fetchAPI('/etfs');
+export async function getETFList(params = { symbol: 'BTC', country_code: 'US' }) {
+  const qs = new URLSearchParams(params).toString();
+  return await fetchAPI(`/etfs?${qs}`);
 }
 
 export async function getETFSummaryHistory() {
@@ -67,7 +79,8 @@ export async function getIndexMarketSnapshot(ticker) {
 }
 
 export async function getIndexKlines(ticker, params = {}) {
-  const qs = new URLSearchParams(params).toString();
+  // SoSoValue API requires 'interval' parameter for klines
+  const qs = new URLSearchParams({ interval: '1d', ...params }).toString();
   return await fetchAPI(`/indices/${ticker}/klines${qs ? '?' + qs : ''}`);
 }
 
@@ -98,6 +111,10 @@ export async function getFeaturedNews() {
 
 export async function getFundraisingProjects() {
   return await fetchAPI('/fundraising/projects');
+}
+
+export async function getFundraisingProjectDetails(projectId) {
+  return await fetchAPI(`/fundraising/projects/${projectId}`);
 }
 
 export async function getMacroEvents(params = {}) {

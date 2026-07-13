@@ -39,11 +39,11 @@ async function proxyToSoSoValue(req, res) {
       },
     });
     const data = await response.json();
-    
+
     if (req.method === 'GET' && data.code !== 402901) {
       apiCache.set(url, { time: Date.now(), data });
     }
-    
+
     res.json(data);
   } catch (error) {
     console.error(`Proxy error for ${url}:`, error.message);
@@ -104,11 +104,11 @@ Rules:
     });
 
     const data = await response.json();
-    
+
     if (!data.candidates) {
       console.error('Gemini API Error:', JSON.stringify(data, null, 2));
     }
-    
+
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || 'I could not generate a response. Please check the server logs for API errors.';
     res.json({ response: text });
   } catch (error) {
