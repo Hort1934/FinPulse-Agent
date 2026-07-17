@@ -127,3 +127,65 @@ app.listen(PORT, () => {
   console.log(`   SoSoValue API Key: ${process.env.VITE_SOSOVALUE_API_KEY ? '✅ Configured' : '❌ Not set (demo mode)'}`);
   console.log(`   Gemini API Key: ${process.env.VITE_GEMINI_API_KEY ? '✅ Configured' : '❌ Not set (demo mode)'}\n`);
 });
+
+// ==========================================
+// TELEGRAM BOT INTEGRATION
+// ==========================================
+import TelegramBot from 'node-telegram-bot-api';
+const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+
+if (TELEGRAM_TOKEN) {
+  const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
+  console.log(`🤖 Telegram Bot is running...`);
+
+  bot.onText(/\/start/, (msg) => {
+    const chatId = msg.chat.id;
+    bot.sendMessage(chatId, 'Welcome to FinPulse AI Bot! 🚀\nI am your proactive crypto market analyst.\n\nYou can ask me things like:\n"What is the current market sentiment?"\n"Are ETFs buying BTC right now?"');
+  });
+
+  bot.on('message', async (msg) => {
+    const chatId = msg.chat.id;
+    const text = msg.text;
+
+    // Ignore commands like /start
+    if (text.startsWith('/')) return;
+
+    bot.sendChatAction(chatId, 'typing');
+
+    const apiKey = process.env.VITE_GEMINI_API_KEY;
+    if (!apiKey || apiKey === 'your_gemini_api_key_here') {
+      bot.sendMessage(chatId, "⚠️ My AI brain is currently in demo mode (no API key configured). Please add VITE_GEMINI_API_KEY to your .env file!");
+      return;
+    }
+
+    try {
+      const systemPrompt = `You are FinPulse AI, an elite crypto market analyst responding via Telegram. Keep responses to 1-3 complete sentences. Be punchy, conversational, and use emojis. Do NOT cut off sentences abruptly. Format as plain text with standard emojis (avoid complex markdown formatting that might break). Context: User asked: "${text}"`;
+      
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+      const response = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            { role: 'user', parts: [{ text: systemPrompt }] }
+          ],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 1024,
+          }
+        })
+      });
+
+      const data = await response.json();
+      let reply = data.candidates?.[0]?.content?.parts?.[0]?.text || 'I encountered an error analyzing the market.';
+      
+      // Clean up any unclosed markdown or problematic characters for Telegram
+      reply = reply.replace(/[*_`]/g, '');
+
+      bot.sendMessage(chatId, reply);
+    } catch (e) {
+      console.error(e);
+      bot.sendMessage(chatId, 'Sorry, I am having trouble connecting to my neural network right now. 📉');
+    }
+  });
+}

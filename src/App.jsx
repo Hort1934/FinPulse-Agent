@@ -6,10 +6,13 @@ import TreasuryMonitor from './components/TreasuryMonitor'
 import MacroRadar from './components/MacroRadar'
 import AgentChat from './components/AgentChat'
 import OpportunityEngine from './components/OpportunityEngine'
+import AiAlertBanner from './components/AiAlertBanner'
+import PortfolioTracker from './components/PortfolioTracker'
 
 const NAV_ITEMS = [
   { id: 'pulse', icon: '⚡', label: 'Market Pulse', section: 'Intelligence' },
   { id: 'news', icon: '📰', label: 'News Intel', section: 'Intelligence' },
+  { id: 'portfolio', icon: '💼', label: 'My Portfolio', section: 'Analytics' },
   { id: 'index', icon: '📊', label: 'Index & ETF', section: 'Analytics' },
   { id: 'treasury', icon: '🏦', label: 'BTC Treasury', section: 'Analytics' },
   { id: 'macro', icon: '🌍', label: 'Macro Radar', section: 'Analytics' },
@@ -30,6 +33,7 @@ function App() {
     switch (activeView) {
       case 'pulse': return <MarketPulse />
       case 'news': return <NewsIntel />
+      case 'portfolio': return <PortfolioTracker />
       case 'index': return <IndexHub />
       case 'treasury': return <TreasuryMonitor />
       case 'macro': return <MacroRadar />
@@ -92,6 +96,7 @@ function App() {
           <div className="page-subtitle">
             {activeView === 'pulse' && 'Real-time market overview & sector analysis'}
             {activeView === 'news' && 'AI-powered news feed with sentiment analysis'}
+            {activeView === 'portfolio' && 'Track your custom crypto portfolio performance'}
             {activeView === 'index' && 'SoSoValue indices & crypto ETF analytics'}
             {activeView === 'treasury' && 'Corporate Bitcoin holdings tracker'}
             {activeView === 'macro' && 'Macroeconomic events & crypto impact'}
@@ -99,6 +104,8 @@ function App() {
             {activeView === 'chat' && 'Conversational AI market analyst'}
           </div>
         </header>
+
+        <AiAlertBanner />
 
         <div className="page-content">
           {renderView()}
