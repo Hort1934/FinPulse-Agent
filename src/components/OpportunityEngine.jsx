@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import SodexTradeModal from './SodexTradeModal'
 import { getFundraisingProjects, getFundraisingProjectDetails, getMarketSnapshot } from '../services/api'
 
 function generateSignals(marketData) {
@@ -47,6 +48,7 @@ export default function OpportunityEngine() {
   const [marketData, setMarketData] = useState([])
   const [fundraising, setFundraising] = useState([])
   const [loading, setLoading] = useState(false)
+  const [tradeAsset, setTradeAsset] = useState(null)
 
   useEffect(() => {
     async function load() {
@@ -65,18 +67,20 @@ export default function OpportunityEngine() {
       for (const id of Object.keys(topCoinsMap)) {
         try {
           const snap = await getMarketSnapshot(id)
-          if (snap && snap.code === 0) {
+          if (snap) {
             const s = snap.data || snap
-            realMarketData.push({
-              id: id,
-              name: topCoinsMap[id].symbol,
-              fullName: topCoinsMap[id].name,
-              price: s.price || 0,
-              change: (s.change_pct_24h || 0) * 100,
-              marketCap: s.marketcap || 1,
-              volume: s.turnover_24h || 0,
-              rank: s.marketcap_rank || '#'
-            })
+            if (s.price !== undefined || s.marketcap !== undefined) {
+              realMarketData.push({
+                id: id,
+                name: topCoinsMap[id].symbol,
+                fullName: topCoinsMap[id].name,
+                price: s.price || 0,
+                change: (s.change_pct_24h || 0) * 100,
+                marketCap: s.marketcap || 1,
+                volume: s.turnover_24h || 0,
+                rank: s.marketcap_rank || '#'
+              })
+            }
           }
         } catch(e) {}
         // Sleep to avoid SoSoValue rate limit (429)
@@ -188,10 +192,19 @@ export default function OpportunityEngine() {
                     ))}
                   </div>
 
-                  <div style={{ display: 'flex', gap: 12, marginTop: 12, fontSize: 11, color: 'var(--text-muted)' }}>
-                    <span>MCap: {formatBig(signal.marketCap)}</span>
-                    <span>Vol: {formatBig(signal.volume)}</span>
-                    <span>Rank: #{signal.rank}</span>
+                  <div style={{ display: 'flex', gap: 12, marginTop: 16, fontSize: 11, color: 'var(--text-muted)', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', gap: 12 }}>
+                      <span>MCap: {formatBig(signal.marketCap)}</span>
+                      <span>Vol: {formatBig(signal.volume)}</span>
+                      <span>Rank: #{signal.rank}</span>
+                    </div>
+                    <button 
+                      className="btn btn-sm btn-outline" 
+                      style={{ fontSize: 11, padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 4, borderColor: 'var(--accent-purple)', color: 'var(--accent-purple)' }}
+                      onClick={() => setTradeAsset({ symbol: signal.name, name: signal.fullName, price: signal.price })}
+                    >
+                      ⚡ Trade on SoDEX
+                    </button>
                   </div>
                 </div>
               )
@@ -232,6 +245,12 @@ export default function OpportunityEngine() {
           </div>
         </>
       )}
+
+      <SodexTradeModal 
+        isOpen={!!tradeAsset} 
+        onClose={() => setTradeAsset(null)} 
+        asset={tradeAsset} 
+      />
     </div>
   )
 }

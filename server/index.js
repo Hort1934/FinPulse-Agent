@@ -143,6 +143,10 @@ if (TELEGRAM_TOKEN) {
     bot.sendMessage(chatId, 'Welcome to FinPulse AI Bot! 🚀\nI am your proactive crypto market analyst.\n\nYou can ask me things like:\n"What is the current market sentiment?"\n"Are ETFs buying BTC right now?"');
   });
 
+  bot.on('polling_error', (error) => {
+    console.error('Telegram Polling Error:', error.message);
+  });
+
   bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text;
