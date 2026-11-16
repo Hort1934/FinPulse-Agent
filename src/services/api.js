@@ -1,35 +1,44 @@
 import { getMockDataForEndpoint } from './mockData';
+import { recordSource } from './provenance';
 
 const API_BASE = '/api/soso';
 
-async function fetchAPI(endpoint, retries = 3, delayMs = 1000) {
+// Retries and rate limiting are handled on the server. If the server cannot
+// get real data, the widget falls back to sample data AND records it as
+// SIMULATED, so the header badge tells the user exactly what they are seeing.
+async function fetchAPI(endpoint) {
   try {
     const res = await fetch(`${API_BASE}${endpoint}`);
     const data = await res.json();
-    
-    // Handle SoSoValue rate limit (code 402901)
-    if (data.code === 402901) {
-      if (retries > 0) {
-        console.warn(`Rate limit hit for ${endpoint}. Retrying in ${delayMs}ms...`);
-        await new Promise(r => setTimeout(r, delayMs + Math.random() * 500));
-        return fetchAPI(endpoint, retries - 1, delayMs * 1.5);
-      } else {
-        console.warn(`Rate limit exceeded for ${endpoint}. Using mock data.`);
-        return getMockDataForEndpoint(endpoint);
-      }
+    if (data._mock || !res.ok || (data.code !== undefined && data.code !== 0)) {
+      recordSource(endpoint, 'simulated', { reason: data._meta?.reason || data.message || `HTTP ${res.status}` });
+      return getMockDataForEndpoint(endpoint);
     }
-    
-    if (data._mock || res.status === 429 || (data.code !== 0 && data.code !== undefined && data.code !== 200)) {
-       console.warn(`API returned mock flag or error for ${endpoint}. Using mock data.`);
-       return getMockDataForEndpoint(endpoint);
-    }
-
-    if (data.data !== undefined) return data.data;
-    return data;
+    recordSource(endpoint, data._meta?.source || 'live', { at: data._meta?.fetchedAt });
+    return data.data !== undefined ? data.data : data;
   } catch (err) {
-    console.warn(`API fetch failed for ${endpoint}:`, err.message);
+    recordSource(endpoint, 'simulated', { reason: err.message });
     return getMockDataForEndpoint(endpoint);
   }
+}
+
+export async function getSignals({ refresh = false, record = true } = {}) {
+  const res = await fetch(`/api/signals${refresh ? '?refresh=1' : ''}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  if (record) {
+    const stale = data.sources?.some(s => s.source === 'stale' || s.source === 'error');
+    recordSource('/signals', stale ? 'stale' : 'live', { at: data.generatedAt });
+  }
+  return data;
+}
+
+export async function getTradePreview({ symbol, side, usd, address }) {
+  const qs = new URLSearchParams({ symbol, side, usd: String(usd), ...(address ? { address } : {}) });
+  const res = await fetch(`/api/sodex/preview?${qs}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
 }
 
 export async function getCurrencyList() {
@@ -126,16 +135,16 @@ export async function getAnalysisCharts() {
   return await fetchAPI('/analyses');
 }
 
-export async function sendChatMessage(messages, context = '') {
+/** Returns { response, dataAsOf } or { error }. Never returns a made-up answer. */
+export async function sendChatMessage(messages) {
   try {
     const res = await fetch('/api/ai/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages, context }),
+      body: JSON.stringify({ messages }),
     });
-    const data = await res.json();
-    return data.response;
+    return await res.json();
   } catch (err) {
-    return 'Connection error. Please check your server is running.';
+    return { error: `Cannot reach the FinPulse server (${err.message}).` };
   }
 }
