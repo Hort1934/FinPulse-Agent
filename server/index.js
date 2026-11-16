@@ -1,195 +1,185 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import TelegramBot from 'node-telegram-bot-api';
+import { soso, ttlFor, apiKey, SoSoError } from './lib/sosovalue.js';
+import { computeSignals, UNIVERSE } from './lib/score.js';
+import { syncLedger, ledgerSummary } from './lib/ledger.js';
+import { generate, geminiKey } from './lib/gemini.js';
+import { preview, spotBalances, spotOrders, accountInfo, sodexNetwork } from './lib/sodex.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const SOSOVALUE_BASE = 'https://openapi.sosovalue.com/openapi/v1';
-
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '100kb' }));
 
-const apiCache = new Map();
-const CACHE_TTL = 60 * 1000;
+const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
-// Proxy middleware for SoSoValue API
-async function proxyToSoSoValue(req, res) {
-  const apiPath = req.url; // app.use strips the mount prefix
-  const url = `${SOSOVALUE_BASE}${apiPath}`;
-  const apiKey = process.env.VITE_SOSOVALUE_API_KEY;
+// ---------- status ----------
+app.get('/api/status', (_req, res) => {
+  res.json({
+    sosovalue: apiKey() ? 'configured' : 'missing',
+    gemini: geminiKey() ? 'configured' : 'missing',
+    sodex: sodexNetwork(),
+  });
+});
 
-  if (!apiKey || apiKey === 'your_sosovalue_api_key_here') {
-    return res.status(200).json({ _mock: true, _message: 'No API key configured. Using mock data.' });
-  }
-
-  if (req.method === 'GET') {
-    const cached = apiCache.get(url);
-    if (cached && Date.now() - cached.time < CACHE_TTL) {
-      return res.json(cached.data);
-    }
-  }
-
-  try {
-    const response = await fetch(url, {
-      headers: {
-        'x-soso-api-key': apiKey,
-        'Content-Type': 'application/json',
-      },
-    });
-    const data = await response.json();
-
-    if (req.method === 'GET' && data.code !== 402901) {
-      apiCache.set(url, { time: Date.now(), data });
-    }
-
-    res.json(data);
-  } catch (error) {
-    console.error(`Proxy error for ${url}:`, error.message);
-    res.status(502).json({ error: 'Failed to fetch from SoSoValue API', details: error.message });
-  }
+// ---------- signals & ledger ----------
+async function signalsWithLedger(force) {
+  const signals = await computeSignals({ force });
+  const db = syncLedger(signals);
+  return { signals, ledger: ledgerSummary(db) };
 }
 
-// Gemini AI proxy
-app.post('/api/ai/chat', async (req, res) => {
-  const apiKey = process.env.VITE_GEMINI_API_KEY;
-  if (!apiKey || apiKey === 'your_gemini_api_key_here') {
-    return res.json({
-      response: "AI chat is in demo mode. Add your Gemini API key to .env to enable real AI responses. For now, I can tell you that the crypto market is always exciting! 🚀",
-      _mock: true
-    });
-  }
-
+app.get('/api/signals', async (req, res) => {
+  if (!apiKey()) return res.status(503).json({ error: 'SoSoValue API key is not configured. Signals are never simulated.' });
   try {
-    const { messages, context } = req.body;
-    const systemPrompt = `You are FinPulse AI — an expert crypto market analyst and research assistant. You have access to real-time data from SoSoValue platform including:
-- Cryptocurrency prices, market caps, and trading volumes
-- Bitcoin & Ethereum ETF flows and performance
-- SoSoValue Index (SSI) data
-- BTC Treasury holdings by public companies
-- Macro economic events and their impact on crypto
-- Latest crypto news and market sentiment
-- Fundraising/investment data for crypto projects
-
-Current market context provided:
-${context || 'No specific context available.'}
-
-Rules:
-1. Be concise but insightful
-2. Always reference specific data points when available
-3. Use emojis sparingly for readability
-4. Flag risks and opportunities
-5. Never give direct financial advice, but provide analysis
-6. Format responses with markdown for readability`;
-
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-    const response = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          { role: 'user', parts: [{ text: systemPrompt }] },
-          { role: 'model', parts: [{ text: 'Understood. I am FinPulse AI, ready to analyze crypto markets.' }] },
-          ...messages.map(m => ({
-            role: m.role === 'assistant' ? 'model' : 'user',
-            parts: [{ text: m.content }]
-          }))
-        ],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 1024,
-        }
-      })
-    });
-
-    const data = await response.json();
-
-    if (!data.candidates) {
-      console.error('Gemini API Error:', JSON.stringify(data, null, 2));
-    }
-
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || 'I could not generate a response. Please check the server logs for API errors.';
-    res.json({ response: text });
-  } catch (error) {
-    console.error('Gemini API error:', error.message);
-    res.json({ response: 'AI service temporarily unavailable. Please try again later.', error: true });
+    const { signals, ledger } = await signalsWithLedger(req.query.refresh === '1');
+    res.json({ ...signals, ledger });
+  } catch (err) {
+    console.error('signals error:', err);
+    res.status(502).json({ error: err.message });
   }
 });
 
-// Route all /api/soso/* requests to SoSoValue
-app.use('/api/soso', (req, res) => {
-  proxyToSoSoValue(req, res);
+app.get('/api/ledger', (_req, res) => res.json(ledgerSummary()));
+
+// ---------- SoDEX ----------
+app.get('/api/sodex/preview', async (req, res) => {
+  const { symbol, side, usd, address } = req.query;
+  const amount = Number(usd);
+  if (!symbol || !['buy', 'sell'].includes(side) || !(amount > 0) || amount > 1e7) return res.status(400).json({ error: 'symbol, side (buy|sell) and a positive usd amount are required' });
+  if (address && !ADDRESS_RE.test(address)) return res.status(400).json({ error: 'invalid address' });
+  try {
+    let signal = null, eventRisk = null;
+    try {
+      const s = await computeSignals();
+      const a = s.assets.find(x => x.sodexSymbol === symbol);
+      if (a) signal = { score: a.score, stance: a.stance };
+      eventRisk = s.macro.level;
+    } catch { /* preview still works without the score */ }
+    res.json(await preview({ symbol, side, usd: amount, address, signal, eventRisk }));
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+app.get('/api/sodex/account/:address', async (req, res) => {
+  const { address } = req.params;
+  if (!ADDRESS_RE.test(address)) return res.status(400).json({ error: 'invalid address' });
+  try {
+    const [acc, bal, orders] = await Promise.all([accountInfo(address), spotBalances(address), spotOrders(address).catch(() => null)]);
+    res.json({ network: sodexNetwork(), accountID: acc.primaryAccountID, balances: bal.balances, orders });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// ---------- AI agent ----------
+function signalsContext(s) {
+  const lines = s.assets.map(a => {
+    const c = Object.entries(a.components).map(([k, v]) => `${k}=${v.value ?? 'n/a'} (${v.detail})`).join('; ');
+    return `- ${a.symbol}: price $${a.price}, 24h ${(a.change24h * 100).toFixed(2)}%, FinPulse Score ${a.score} → ${a.stance}, confidence ${a.confidence}%. Components: ${c}`;
+  });
+  const macro = s.macro.upcoming.map(e => `${e.date} ${e.name}${e.highImpact ? ' [HIGH IMPACT]' : ''}`).join('; ') || 'none in next 7 days';
+  const bt = s.backtest.horizons.map(h => `${h.horizonDays}d: ${h.signals} signals, hit rate ${h.hitRate == null ? 'n/a' : (h.hitRate * 100).toFixed(0) + '%'} vs base up-rate ${(h.baselineUpRate * 100).toFixed(0)}%`).join('; ');
+  return `Data timestamp: ${new Date(s.generatedAt).toISOString()} (source: SoSoValue API)
+FinPulse Scores (range -100..100, |score|>=25 is directional):
+${lines.join('\n')}
+Macro event risk: ${s.macro.level}. Upcoming: ${macro}
+Backtest (${s.backtest.from}..${s.backtest.to}, price+ETF components only): ${bt}`;
+}
+
+const SYSTEM = ctx => `You are FinPulse AI, a crypto market analyst inside a research-to-execution desk.
+Ground every claim in the DATA block below. If the data does not answer the question, say so plainly — never invent numbers, flows or news.
+The FinPulse Score is computed deterministically by the app; explain it, do not recompute or override it.
+Mention event risk when relevant. You do not give personal financial advice; you describe what the data shows.
+Use short markdown (bold, bullets). Keep answers under 200 words unless asked for detail.
+
+DATA:
+${ctx}`;
+
+app.post('/api/ai/chat', async (req, res) => {
+  const messages = Array.isArray(req.body?.messages) ? req.body.messages.slice(-12) : [];
+  if (!messages.length) return res.status(400).json({ error: 'messages required' });
+  let ctx = 'No live data available (SoSoValue unavailable).';
+  try { if (apiKey()) ctx = signalsContext(await computeSignals()); } catch (err) { ctx = `Live data failed to load: ${err.message}`; }
+  const r = await generate({
+    system: SYSTEM(ctx),
+    contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: String(m.content).slice(0, 4000) }] })),
+  });
+  if (r.error) return res.json({ error: r.error, status: r.status });
+  res.json({ response: r.text, dataAsOf: ctx.match(/Data timestamp: (\S+)/)?.[1] ?? null });
+});
+
+// ---------- SoSoValue proxy (dashboard widgets) ----------
+app.use('/api/soso', async (req, res) => {
+  if (req.method !== 'GET') return res.status(405).json({ code: -1, message: 'GET only' });
+  if (!apiKey()) return res.json({ _mock: true, _meta: { source: 'simulated', reason: 'no_api_key' } });
+  try {
+    const { data, meta } = await soso(req.url, { ttl: ttlFor(req.url) });
+    res.json({ code: 0, data, _meta: meta });
+  } catch (err) {
+    const code = err instanceof SoSoError ? err.code : -1;
+    res.status(502).json({ code, message: err.message, _meta: { source: 'error', path: req.url } });
+  }
 });
 
 app.listen(PORT, () => {
-  console.log(`\n🚀 FinPulse API Proxy running on http://localhost:${PORT}`);
-  console.log(`   SoSoValue API Key: ${process.env.VITE_SOSOVALUE_API_KEY ? '✅ Configured' : '❌ Not set (demo mode)'}`);
-  console.log(`   Gemini API Key: ${process.env.VITE_GEMINI_API_KEY ? '✅ Configured' : '❌ Not set (demo mode)'}\n`);
+  console.log(`\n🚀 FinPulse API on http://localhost:${PORT}`);
+  console.log(`   SoSoValue: ${apiKey() ? '✅' : '❌ missing (widgets will show SIMULATED)'}`);
+  console.log(`   Gemini:    ${geminiKey() ? '✅' : '❌ missing'}`);
+  console.log(`   SoDEX:     ${sodexNetwork().name} (${sodexNetwork().gateway})\n`);
 });
 
-// ==========================================
-// TELEGRAM BOT INTEGRATION
-// ==========================================
-import TelegramBot from 'node-telegram-bot-api';
+// ---------- Telegram bot ----------
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-
 if (TELEGRAM_TOKEN) {
   const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
-  console.log(`🤖 Telegram Bot is running...`);
+  console.log('🤖 Telegram bot running');
+  bot.on('polling_error', e => console.error('Telegram polling error:', e.message));
 
-  bot.onText(/\/start/, (msg) => {
-    const chatId = msg.chat.id;
-    bot.sendMessage(chatId, 'Welcome to FinPulse AI Bot! 🚀\nI am your proactive crypto market analyst.\n\nYou can ask me things like:\n"What is the current market sentiment?"\n"Are ETFs buying BTC right now?"');
-  });
+  const fmtSignal = a => `${a.symbol}  ${a.score > 0 ? '+' : ''}${a.score}  ${a.stance}  (conf ${a.confidence}%)  $${a.price?.toLocaleString()}`;
 
-  bot.on('polling_error', (error) => {
-    console.error('Telegram Polling Error:', error.message);
-  });
+  bot.onText(/^\/start/, msg => bot.sendMessage(msg.chat.id,
+    'FinPulse desk bot.\n/signals — FinPulse Scores for BTC, ETH, SOL, XRP, BNB\n/score BTC — component breakdown\n/track — signal track record\nOr just ask a question.'));
 
-  bot.on('message', async (msg) => {
-    const chatId = msg.chat.id;
-    const text = msg.text;
-
-    // Ignore commands like /start
-    if (text.startsWith('/')) return;
-
-    bot.sendChatAction(chatId, 'typing');
-
-    const apiKey = process.env.VITE_GEMINI_API_KEY;
-    if (!apiKey || apiKey === 'your_gemini_api_key_here') {
-      bot.sendMessage(chatId, "⚠️ My AI brain is currently in demo mode (no API key configured). Please add VITE_GEMINI_API_KEY to your .env file!");
-      return;
-    }
-
+  bot.onText(/^\/signals/, async msg => {
     try {
-      const systemPrompt = `You are FinPulse AI, an elite crypto market analyst responding via Telegram. Keep responses to 1-3 complete sentences. Be punchy, conversational, and use emojis. Do NOT cut off sentences abruptly. Format as plain text with standard emojis (avoid complex markdown formatting that might break). Context: User asked: "${text}"`;
-      
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-      const response = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [
-            { role: 'user', parts: [{ text: systemPrompt }] }
-          ],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 1024,
-          }
-        })
-      });
+      const { signals } = await signalsWithLedger(false);
+      bot.sendMessage(msg.chat.id, `FinPulse Scores (SoSoValue data, ${new Date(signals.generatedAt).toUTCString()})\n\n${signals.assets.map(fmtSignal).join('\n')}\n\nMacro event risk: ${signals.macro.level}`);
+    } catch (e) { bot.sendMessage(msg.chat.id, `Could not load signals: ${e.message}`); }
+  });
 
-      const data = await response.json();
-      let reply = data.candidates?.[0]?.content?.parts?.[0]?.text || 'I encountered an error analyzing the market.';
-      
-      // Clean up any unclosed markdown or problematic characters for Telegram
-      reply = reply.replace(/[*_`]/g, '');
+  bot.onText(/^\/score\s+(\w+)/, async (msg, m) => {
+    try {
+      const s = await computeSignals();
+      const a = s.assets.find(x => x.symbol === m[1].toUpperCase());
+      if (!a) return bot.sendMessage(msg.chat.id, `Tracked assets: ${UNIVERSE.map(u => u.symbol).join(', ')}`);
+      const parts = Object.entries(a.components).map(([k, v]) => `• ${k} (w${v.weight}): ${v.value ?? 'n/a'} — ${v.detail}`).join('\n');
+      bot.sendMessage(msg.chat.id, `${fmtSignal(a)}\n\n${parts}`);
+    } catch (e) { bot.sendMessage(msg.chat.id, `Could not load score: ${e.message}`); }
+  });
 
-      bot.sendMessage(chatId, reply);
-    } catch (e) {
-      console.error(e);
-      bot.sendMessage(chatId, 'Sorry, I am having trouble connecting to my neural network right now. 📉');
-    }
+  bot.onText(/^\/track/, msg => {
+    const l = ledgerSummary();
+    const rows = l.stats.map(s => `${s.horizonHours}h: ${s.graded} graded, hit rate ${s.hitRate == null ? 'n/a' : (s.hitRate * 100).toFixed(0) + '%'}, ${s.pending} pending`).join('\n');
+    bot.sendMessage(msg.chat.id, `Signal ledger: ${l.total} signals recorded\n${rows}`);
+  });
+
+  bot.on('message', async msg => {
+    const text = msg.text;
+    if (!text || text.startsWith('/')) return; // stickers, photos, commands
+    bot.sendChatAction(msg.chat.id, 'typing');
+    let ctx = 'No live data available.';
+    try { ctx = signalsContext(await computeSignals()); } catch { /* answer without data */ }
+    const r = await generate({
+      system: `${SYSTEM(ctx)}\nYou are replying in Telegram: plain text, at most 3 sentences, no markdown.`,
+      contents: [{ role: 'user', parts: [{ text: text.slice(0, 2000) }] }],
+      maxOutputTokens: 300,
+    });
+    bot.sendMessage(msg.chat.id, r.error ? `AI unavailable: ${r.error}` : r.text.replace(/[*_`]/g, ''));
   });
 }
