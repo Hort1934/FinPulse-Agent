@@ -198,12 +198,16 @@ function signalsContext(s) {
     return `- ${a.symbol}: price $${a.price}, 24h ${(a.change24h * 100).toFixed(2)}%, FinPulse Score ${a.score} → ${a.stance}, confidence ${a.confidence}%. Components: ${c}`;
   });
   const macro = s.macro.upcoming.map(e => `${e.date} ${e.name}${e.highImpact ? ' [HIGH IMPACT]' : ''}`).join('; ') || 'none in next 7 days';
-  const bt = s.backtest.horizons.map(h => `${h.horizonDays}d: ${h.signals} signals, hit rate ${h.hitRate == null ? 'n/a' : (h.hitRate * 100).toFixed(0) + '%'} vs base up-rate ${(h.baselineUpRate * 100).toFixed(0)}%`).join('; ');
+  const pct = x => (x == null ? 'n/a' : `${(x * 100).toFixed(0)}%`);
+  const bt = s.backtest.horizons.map(h => `${h.horizonDays}d: ${h.signals} signals (${h.longs} long / ${h.shorts} short), hit rate ${pct(h.hitRate)}, naive same-mix hit rate ${pct(h.naiveHitRate)}, EDGE ${h.edge == null ? 'n/a' : `${h.edge > 0 ? '+' : ''}${(h.edge * 100).toFixed(1)} pp`}`).join('; ');
+  const lg = s.ledger ? s.ledger.stats.map(x => `${x.horizonHours}h: ${x.graded} graded${x.graded ? `, hit rate ${pct(x.hitRate)}` : ''}`).join('; ') : 'n/a';
   return `Data timestamp: ${new Date(s.generatedAt).toISOString()} (source: SoSoValue API)
 FinPulse Scores (range -100..100, |score|>=25 is directional):
 ${lines.join('\n')}
 Macro event risk: ${s.macro.level}. Upcoming: ${macro}
-Backtest (${s.backtest.from}..${s.backtest.to}, price+ETF components only): ${bt}`;
+Backtest (${s.backtest.from}..${s.backtest.to}, price+ETF components only, overlapping windows): ${bt}
+How to read the backtest: the market was strongly one-directional, so a high hit rate is mostly the market, not skill. The honest measure is EDGE = hit rate minus the naive same-mix hit rate. Always quote the edge, never compare the hit rate with the raw up-rate.
+Live forward-test ledger: ${lg}`;
 }
 
 const SYSTEM = ctx => `You are FinPulse AI, a crypto market analyst inside a research-to-execution desk.
@@ -219,7 +223,7 @@ app.post('/api/ai/chat', async (req, res) => {
   const messages = Array.isArray(req.body?.messages) ? req.body.messages.slice(-12) : [];
   if (!messages.length) return res.status(400).json({ error: 'messages required' });
   let ctx = 'No live data available (SoSoValue unavailable).';
-  try { if (apiKey()) ctx = signalsContext(await computeSignals()); } catch (err) { ctx = `Live data failed to load: ${err.message}`; }
+  try { if (apiKey()) ctx = signalsContext({ ...(await computeSignals()), ledger: ledgerSummary() }); } catch (err) { ctx = `Live data failed to load: ${err.message}`; }
   const r = await generate({
     system: SYSTEM(ctx),
     contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: String(m.content).slice(0, 4000) }] })),
