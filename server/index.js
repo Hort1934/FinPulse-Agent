@@ -1,4 +1,7 @@
 import express from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import TelegramBot from 'node-telegram-bot-api';
@@ -244,6 +247,16 @@ app.use('/api/soso', async (req, res) => {
     res.status(502).json({ code, message: err.message, _meta: { source: 'error', path: req.url } });
   }
 });
+
+// ---------- built UI (production) ----------
+// `npm run build` writes dist/; when it exists this one process serves both the
+// API and the app, so a deployment needs a single port and a single service.
+const DIST = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist');
+if (fs.existsSync(path.join(DIST, 'index.html'))) {
+  app.use(express.static(DIST, { index: false, maxAge: '1h' }));
+  app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(path.join(DIST, 'index.html')));
+}
+app.use('/api', (_req, res) => res.status(404).json({ error: 'Unknown API route' }));
 
 app.listen(PORT, () => {
   console.log(`\n🚀 FinPulse API on http://localhost:${PORT}`);

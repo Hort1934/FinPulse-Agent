@@ -7,7 +7,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { THRESHOLD } from './score.js';
 
-const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'data');
+// DATA_DIR lets a deployment keep the ledger on a persistent volume.
+const DIR = process.env.DATA_DIR || path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'data');
 const FILE = path.join(DIR, 'ledger.json');
 const MIN_GAP_MS = 6 * 3600_000; // one entry per asset per 6h, unless the stance flips
 export const HORIZONS_H = [24, 72, 168];

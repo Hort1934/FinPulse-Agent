@@ -1,0 +1,6 @@
+# Caddy gets and renews a Let's Encrypt certificate automatically.
+# FINPULSE_HOST is e.g. 35-192-142-253.sslip.io (no domain needed) or your own domain.
+{$FINPULSE_HOST} {
+	encode gzip
+	reverse_proxy 127.0.0.1:3001
+}
