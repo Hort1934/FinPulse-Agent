@@ -140,6 +140,7 @@ Signal Desk ──▶ Trade ticket ──▶ Risk checks ──▶ Wallet signs 
 | Order | BUY 0.0003 · IOC limit 65 036 |
 | Order ID | **1305574701** |
 | Expected / actual fill | 64 712 / **64 712** |
+| Second order (from the live demo) | **1305601780**: BUY 0.00031, expected 64 362, filled **64 369** (+0.011%) |
 
 > Testnet note: only `vBTC_vUSDC` currently has a two-sided book on SoDEX testnet. For the other markets, the ticket shows the liquidity block instead of a misleading price.
 
