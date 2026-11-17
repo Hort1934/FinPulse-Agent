@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import SodexTradeModal from './SodexTradeModal'
+import ExecutionLog from './ExecutionLog'
 import { getSignals, getFundraisingProjects, getFundraisingProjectDetails } from '../services/api'
 
 const COMPONENT_LABELS = {
@@ -253,10 +254,11 @@ export default function OpportunityEngine() {
       <div className="tabs" style={{ marginBottom: 20 }}>
         <button className={`tab ${tab === 'scores' ? 'active' : ''}`} onClick={() => setTab('scores')}>⚡ Scores</button>
         <button className={`tab ${tab === 'track' ? 'active' : ''}`} onClick={() => setTab('track')}>🎯 Track record</button>
+        <button className={`tab ${tab === 'executions' ? 'active' : ''}`} onClick={() => setTab('executions')}>🧾 Executions</button>
         <button className={`tab ${tab === 'fundraising' ? 'active' : ''}`} onClick={() => setTab('fundraising')}>💰 Fundraising</button>
       </div>
 
-      {tab !== 'fundraising' && (
+      {(tab === 'scores' || tab === 'track') && (
         <div className="desk-toolbar">
           <div>
             {data && <>Scored {new Date(data.generatedAt).toLocaleTimeString()} from {data.sources.length} SoSoValue calls · macro risk <b className={`risk-${data.macro.level}`}>{data.macro.level}</b>
@@ -266,8 +268,8 @@ export default function OpportunityEngine() {
         </div>
       )}
 
-      {error && tab !== 'fundraising' && <div className="error-box">Signals unavailable: {error}. FinPulse never substitutes simulated data for scores.</div>}
-      {loading && !data && tab !== 'fundraising' && <div className="loading-row"><div className="loading-spinner" /> Pulling SoSoValue data and scoring 5 assets…</div>}
+      {error && (tab === 'scores' || tab === 'track') && <div className="error-box">Signals unavailable: {error}. FinPulse never substitutes simulated data for scores.</div>}
+      {loading && !data && (tab === 'scores' || tab === 'track') && <div className="loading-row"><div className="loading-spinner" /> Pulling SoSoValue data and scoring 5 assets…</div>}
 
       {tab === 'scores' && data && (
         <>
@@ -278,6 +280,7 @@ export default function OpportunityEngine() {
         </>
       )}
       {tab === 'track' && data && <TrackRecord data={data} />}
+      {tab === 'executions' && <ExecutionLog />}
       {tab === 'fundraising' && <Fundraising />}
 
       <SodexTradeModal isOpen={!!tradeAsset} onClose={() => setTradeAsset(null)} asset={tradeAsset} />

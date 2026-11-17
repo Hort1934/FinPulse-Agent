@@ -6,7 +6,7 @@ import { soso, ttlFor, apiKey, SoSoError } from './lib/sosovalue.js';
 import { computeSignals, UNIVERSE } from './lib/score.js';
 import { syncLedger, ledgerSummary } from './lib/ledger.js';
 import { generate, geminiKey } from './lib/gemini.js';
-import { preview, spotBalances, spotOrders, accountInfo, sodexNetwork, submitExchange, submitSpotOrders, apiKeys } from './lib/sodex.js';
+import { preview, spotBalances, spotOrders, accountInfo, sodexNetwork, submitExchange, submitSpotOrders, apiKeys, orderFills, orderbook } from './lib/sodex.js';
 import { recordExecution, listExecutions } from './lib/executions.js';
 
 dotenv.config();
@@ -147,10 +147,48 @@ app.post('/api/sodex/orders', async (req, res) => {
   } catch (err) { res.status(502).json({ error: err.message }); }
 });
 
-app.get('/api/sodex/executions', (req, res) => {
+// Execution trail: signal -> order -> exchange result -> actual fills -> mark-to-market.
+app.get('/api/sodex/executions', async (req, res) => {
   const { address } = req.query;
   if (address && !ADDRESS_RE.test(address)) return res.status(400).json({ error: 'invalid address' });
-  res.json(listExecutions(address));
+  const entries = listExecutions(address);
+  const mids = {};
+  const enriched = await Promise.all(entries.map(async e => {
+    const result = e.response?.data?.[0] || null;
+    const out = {
+      ts: e.ts, address: e.address, symbol: e.symbol, signal: e.signal, expected: e.expected, order: e.order,
+      accepted: e.response?.code === 0 && result?.code === 0,
+      orderID: result?.orderID ?? null,
+      error: e.response?.code !== 0 ? (e.response?.error || `code ${e.response?.code}`) : result?.code !== 0 ? (result?.error || `code ${result?.code}`) : null,
+      fills: [], filledQty: 0, avgFill: null,
+    };
+    if (out.orderID && e.address) {
+      try {
+        const fills = await orderFills(e.address, out.orderID);
+        out.fills = fills.map(f => ({ price: Number(f.price), quantity: Number(f.quantity), fee: Number(f.fee), feeCoin: f.feeCoin, time: f.time, isMaker: f.isMaker }));
+        out.filledQty = out.fills.reduce((s, f) => s + f.quantity, 0);
+        out.avgFill = out.filledQty ? out.fills.reduce((s, f) => s + f.price * f.quantity, 0) / out.filledQty : null;
+      } catch (err) { out.fillsError = err.message; }
+    }
+    if (out.avgFill && e.expected?.avgPrice) out.slippageVsExpectedPct = (out.avgFill / e.expected.avgPrice - 1) * 100 * (e.order.side === 1 ? 1 : -1);
+    if (out.avgFill) {
+      try {
+        if (!(e.symbol in mids)) {
+          const b = await orderbook(e.symbol, 1);
+          mids[e.symbol] = b.bids.length && b.asks.length ? (Number(b.bids[0][0]) + Number(b.asks[0][0])) / 2 : null;
+        }
+        const mid = mids[e.symbol];
+        if (mid) {
+          const dir = e.order.side === 1 ? 1 : -1;
+          out.markPrice = mid;
+          out.unrealizedPnl = dir * (mid - out.avgFill) * out.filledQty;
+          out.unrealizedPct = dir * (mid / out.avgFill - 1) * 100;
+        }
+      } catch { /* mark is optional */ }
+    }
+    return out;
+  }));
+  res.json(enriched);
 });
 
 // ---------- AI agent ----------

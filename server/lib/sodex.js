@@ -61,6 +61,14 @@ export const submitSpotOrders = (params, { key, sign, nonce }) => send('POST', '
   'X-API-Key': key, 'X-API-Sign': sign, 'X-API-Nonce': String(nonce), 'X-API-Chain': String(NET.chainId),
 });
 
+const fillsCache = new Map(); // orderID -> fills (immutable once the IOC order is done)
+export async function orderFills(address, orderID) {
+  if (fillsCache.has(orderID)) return fillsCache.get(orderID);
+  const fills = await get(`/spot/accounts/${address}/trades?orderID=${orderID}`);
+  if (fills?.length) fillsCache.set(orderID, fills);
+  return fills || [];
+}
+
 export const apiKeys = (address, accountID, name) => {
   const qs = new URLSearchParams({ accountID: String(accountID), ...(name ? { name } : {}) });
   return get(`/user/${address}/api-keys?${qs}`);

@@ -33,6 +33,13 @@ export async function getSignals({ refresh = false, record = true } = {}) {
   return data;
 }
 
+export async function getExecutions(address) {
+  const res = await fetch(`/api/sodex/executions${address ? `?address=${address}` : ''}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
 export async function getTradePreview({ symbol, side, usd, address }) {
   const qs = new URLSearchParams({ symbol, side, usd: String(usd), ...(address ? { address } : {}) });
   const res = await fetch(`/api/sodex/preview?${qs}`);
