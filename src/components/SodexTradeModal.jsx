@@ -125,8 +125,8 @@ export default function SodexTradeModal({ isOpen, onClose, asset }) {
   useEffect(() => {
     if (!isOpen) return
     setPreview(null); setError(null)
-    if (asset?.stance === 'REDUCE') setSide('sell')
-    else setSide('buy')
+    // Spot desk: default to Buy; Sell is offered for trimming existing holdings.
+    setSide('buy')
   }, [isOpen, asset])
 
   if (!isOpen || !asset) return null
@@ -213,7 +213,15 @@ export default function SodexTradeModal({ isOpen, onClose, asset }) {
               </ul>
 
               {preview.blocked ? (
-                <div className="error-box">Blocked by risk rules. Adjust size or side.</div>
+                <div className="error-box">
+                  {preview.order?.side === 'sell' && preview.checks.some(c => c.id === 'balance' && !c.ok) ? (
+                    <>
+                      You hold no {preview.market.base}, so there is nothing to sell. On spot, a REDUCE signal means
+                      “trim what you hold”, not “open a short”.{' '}
+                      <button className="link-btn" onClick={() => { setSide('buy'); setPreview(null) }}>Switch to Buy</button>
+                    </>
+                  ) : `Blocked by: ${preview.checks.filter(c => !c.ok && c.level === 'block').map(c => c.message).join('; ')}`}
+                </div>
               ) : (
                 <ExecutionPanel preview={preview} asset={asset} address={preview.account?.address} onReprice={runPreview} />
               )}
