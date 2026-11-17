@@ -1,0 +1,27 @@
+# systemd unit for FinPulse on a small VM. Install with deploy/setup-vm.sh.
+[Unit]
+Description=FinPulse Agent (API + UI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=finpulse
+WorkingDirectory=/opt/finpulse/app
+EnvironmentFile=/opt/finpulse/.env
+Environment=NODE_ENV=production
+Environment=PORT=3001
+Environment=DATA_DIR=/opt/finpulse/data
+ExecStart=/usr/bin/node server/index.js
+Restart=always
+RestartSec=5
+# Keep it a good neighbour on a 1 GB machine shared with other services.
+MemoryMax=300M
+Environment=NODE_OPTIONS=--max-old-space-size=220
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/finpulse/data
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
