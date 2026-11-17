@@ -30,7 +30,7 @@ Nothing on screen is invented. Every widget reports where its numbers came from 
 | **Accountability** | Execution log: signal → ticket → signature → SoDEX order ID → fills → mark-to-market |
 | **Analyst** | Gemini chat that receives the scores, the backtest edge and the ledger, and is told to quote the edge, not the raw hit rate |
 
-> **Live demo:** link added after deployment. Until then, see [Run it locally](#run-it-locally).
+> **Live demo: https://35-192-142-253.sslip.io** (SoDEX testnet). The forward-test ledger has been accumulating there since 17 Nov 2026. See [deploy/DEPLOY.md](deploy/DEPLOY.md) for how it is hosted.
 
 ---
 
@@ -44,7 +44,7 @@ These changes respond directly to the judges' Wave 3 feedback.
 | **Mock data not separated from live** | Mock fallback rendered silently, looking like real data. Several widgets used `Math.random()` or hardcoded numbers | Each response carries provenance metadata. Fallback data is labelled **SIMULATED**, and the header badge shows the worst source on the page. Every hardcoded or random metric has been removed (details below) |
 | **No distinct methodology / validated signals** | "Auto-generated signals" from one-day price change | **FinPulse Score**: 6 weighted, volatility-normalised components, confidence = coverage × agreement × macro haircut, a walk-forward backtest with a **naive baseline and edge**, and a forward ledger |
 | **Wave description too high level** | Feature list | This table, the methodology below, and verifiable order IDs |
-| **No live demo** | Video only | Deployment in progress (single Node process serves API + UI) |
+| **No live demo** | Video only | **Live at https://35-192-142-253.sslip.io**: one Node process serves the API and the UI behind Caddy (HTTPS). The ledger is kept on disk |
 
 ### Data audit: every module, what was fake and what replaced it
 
