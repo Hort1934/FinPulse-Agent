@@ -1,46 +1,31 @@
 import { useState, useRef, useEffect } from 'react'
-import { sendChatMessage, getMarketSnapshot } from '../services/api'
+import { sendChatMessage } from '../services/api'
 
 const SUGGESTIONS = [
-  "What's the current market sentiment?",
-  "Which sectors are pumping today?",
-  "Analyze BTC ETF flows this week",
-  "What macro events should I watch?",
-  "Find tokens near their all-time high",
-  "Summarize today's top crypto news",
+  "Why is BTC's FinPulse Score where it is?",
+  "Which asset has the strongest signal and why?",
+  "What are ETF flows telling us this week?",
+  "Any macro events that should stop me trading?",
+  "How reliable have the signals been?",
 ]
+
+const escapeHtml = s => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 
 export default function AgentChat() {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
-      content: "👋 **Welcome to FinPulse AI!**\n\nI'm your personal crypto market analyst powered by SoSoValue data. I can help you with:\n\n• 📊 Market analysis & price movements\n• 📰 News sentiment breakdown\n• 📈 ETF flow analysis\n• 🏦 BTC treasury tracking\n• 🌍 Macro event impact\n• 🔍 Opportunity discovery\n\nAsk me anything about the crypto markets!"
+      content: "👋 **FinPulse AI analyst**\n\nI answer from the desk's live data: FinPulse Scores and their components (ETF flows, momentum, trend, participation, sector, news), the macro calendar and the signals' track record — all from SoSoValue.\n\nIf the data doesn't cover your question, I'll say so instead of guessing."
     }
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [contextData, setContextData] = useState('Fetching live market context...')
   const messagesEndRef = useRef(null)
   const inputRef = useRef(null)
 
   useEffect(() => {
-    async function loadContext() {
-      const btc = await getMarketSnapshot('1673723677362319866') // BTC
-      const eth = await getMarketSnapshot('1673723677362319867') // ETH
-      if (btc && eth) {
-        setContextData(`Current top assets: BTC $${btc.price} (${(btc.change_pct_24h * 100).toFixed(2)}%), ETH $${eth.price} (${(eth.change_pct_24h * 100).toFixed(2)}%). Market sentiment: mixed.`)
-      }
-    }
-    loadContext()
-  }, [])
-
-  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
-
-  const buildContext = () => {
-    return contextData
-  }
 
   const handleSend = async (text = input) => {
     if (!text.trim() || loading) return
@@ -51,18 +36,11 @@ export default function AgentChat() {
     setInput('')
     setLoading(true)
 
-    try {
-      const response = await sendChatMessage(
-        newMessages.filter(m => m.role !== 'system').slice(-10),
-        buildContext()
-      )
-      setMessages(prev => [...prev, { role: 'assistant', content: response }])
-    } catch (err) {
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: '⚠️ Connection error. Make sure the backend server is running (`node server/index.js`).'
-      }])
-    }
+    const history = newMessages.filter(m => !m.error && m !== messages[0]).slice(-10)
+    const r = await sendChatMessage(history.map(({ role, content }) => ({ role, content })))
+    setMessages(prev => [...prev, r.error
+      ? { role: 'assistant', error: true, content: `⚠️ **AI unavailable:** ${r.error}` }
+      : { role: 'assistant', content: r.response, dataAsOf: r.dataAsOf }])
     setLoading(false)
     inputRef.current?.focus()
   }
@@ -75,8 +53,8 @@ export default function AgentChat() {
   }
 
   const renderMarkdown = (text) => {
-    // Simple markdown renderer
-    return text
+    // Escape first: model output must never be able to inject HTML.
+    return escapeHtml(text)
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       .replace(/\*(.*?)\*/g, '<em>$1</em>')
       .replace(/`(.*?)`/g, '<code style="background:rgba(34,211,238,0.1);padding:1px 4px;border-radius:3px;font-family:var(--font-mono);font-size:12px">$1</code>')
@@ -93,7 +71,10 @@ export default function AgentChat() {
               <div className="chat-avatar">
                 {msg.role === 'assistant' ? '🧠' : '👤'}
               </div>
-              <div className="chat-bubble" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+              <div className={`chat-bubble ${msg.error ? 'chat-error' : ''}`}>
+                <div dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+                {msg.dataAsOf && <div className="chat-source">Grounded in SoSoValue data as of {new Date(msg.dataAsOf).toLocaleTimeString()}</div>}
+              </div>
             </div>
           ))}
           {loading && (

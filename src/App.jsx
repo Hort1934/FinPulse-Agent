@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import DataStatus from './components/DataStatus'
+import { resetSources } from './services/provenance'
 import MarketPulse from './components/MarketPulse'
 import NewsIntel from './components/NewsIntel'
 import IndexHub from './components/IndexHub'
@@ -16,12 +18,16 @@ const NAV_ITEMS = [
   { id: 'index', icon: '📊', label: 'Index & ETF', section: 'Analytics' },
   { id: 'treasury', icon: '🏦', label: 'BTC Treasury', section: 'Analytics' },
   { id: 'macro', icon: '🌍', label: 'Macro Radar', section: 'Analytics' },
-  { id: 'opportunities', icon: '🔍', label: 'Opportunities', section: 'Discovery' },
-  { id: 'chat', icon: '🤖', label: 'AI Agent', section: 'Agent' },
+  { id: 'opportunities', icon: '🎯', label: 'Signal Desk', section: 'Decide & Execute' },
+  { id: 'chat', icon: '🤖', label: 'AI Analyst', section: 'Decide & Execute' },
 ]
 
 function App() {
-  const [activeView, setActiveView] = useState('pulse')
+  const [activeView, setActiveViewRaw] = useState('pulse')
+  const setActiveView = id => {
+    if (id !== activeView) resetSources()
+    setActiveViewRaw(id)
+  }
 
   const grouped = NAV_ITEMS.reduce((acc, item) => {
     if (!acc[item.section]) acc[item.section] = []
@@ -91,7 +97,7 @@ function App() {
           <div className="page-title">
             <span>{activeItem?.icon}</span>
             <span>{activeItem?.label}</span>
-            <div className="pulse-dot" style={{ marginLeft: 8 }}></div>
+            <DataStatus />
           </div>
           <div className="page-subtitle">
             {activeView === 'pulse' && 'Real-time market overview & sector analysis'}
@@ -100,12 +106,12 @@ function App() {
             {activeView === 'index' && 'SoSoValue indices & crypto ETF analytics'}
             {activeView === 'treasury' && 'Corporate Bitcoin holdings tracker'}
             {activeView === 'macro' && 'Macroeconomic events & crypto impact'}
-            {activeView === 'opportunities' && 'Signal generation & opportunity discovery'}
-            {activeView === 'chat' && 'Conversational AI market analyst'}
+            {activeView === 'opportunities' && 'FinPulse Score → risk-checked SoDEX order, with a verifiable track record'}
+            {activeView === 'chat' && 'AI analyst grounded in the desk\'s live scores and data'}
           </div>
         </header>
 
-        <AiAlertBanner />
+        <AiAlertBanner onOpen={() => setActiveView('opportunities')} />
 
         <div className="page-content">
           {renderView()}
