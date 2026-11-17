@@ -101,8 +101,8 @@ function App() {
           </div>
           <div className="page-subtitle">
             {activeView === 'pulse' && 'Real-time market overview & sector analysis'}
-            {activeView === 'news' && 'AI-powered news feed with sentiment analysis'}
-            {activeView === 'portfolio' && 'Track your custom crypto portfolio performance'}
+            {activeView === 'news' && 'SoSoValue news feed with keyword tone tagging'}
+            {activeView === 'portfolio' && 'Your holdings (manual or imported from SoDEX) benchmarked against SSI MAG7'}
             {activeView === 'index' && 'SoSoValue indices & crypto ETF analytics'}
             {activeView === 'treasury' && 'Corporate Bitcoin holdings tracker'}
             {activeView === 'macro' && 'Macroeconomic events & crypto impact'}

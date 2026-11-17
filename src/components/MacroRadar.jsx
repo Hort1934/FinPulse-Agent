@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { getMacroEvents } from '../services/api'
+import { impactOf, IMPACT_RULES } from '../../shared/lexicon.js'
 
 function formatDate(dateStr) {
   const d = new Date(dateStr)
@@ -17,7 +18,7 @@ function daysUntil(dateStr) {
 
 export default function MacroRadar() {
   const [events, setEvents] = useState([])
-  const [filter, setFilter] = useState('upcoming')
+  const [filter, setFilter] = useState('all')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -30,20 +31,16 @@ export default function MacroRadar() {
         const mappedEvents = eventsArray.flatMap(e => {
           if (Array.isArray(e.events)) {
             return e.events.map(title => ({
-              date: e.date || new Date().toISOString(),
-              title: title,
-              importance: 'medium', // Default to medium as api does not provide it
-              country: 'USA',
-              category: 'Economy'
+              date: e.date,
+              title: title.trim(),
+              importance: impactOf(title),
             }))
           }
           // Fallback if the structure is flat
           return {
             date: e.date || e.time || new Date().toISOString(),
             title: e.title || e.event_name || 'Unknown Event',
-            importance: (e.impact || e.importance || 'medium').toLowerCase(),
-            country: e.country || 'USA',
-            category: e.category || 'Economy',
+            importance: impactOf(e.title || e.event_name || ''),
             previous: e.previous,
             forecast: e.forecast,
             actual: e.actual
@@ -56,10 +53,13 @@ export default function MacroRadar() {
     load()
   }, [])
 
-  const filtered = filter === 'all' ? events : events.filter(e => e.importance === filter)
+  const today = new Date().toISOString().slice(0, 10)
+  const upcoming = events.filter(e => e.date >= today).sort((a, b) => a.date.localeCompare(b.date))
+  const next = upcoming.find(e => e.importance === 'high') || upcoming[0]
+  const highImpact = upcoming.filter(e => e.importance === 'high')
 
-  const upcoming = events.filter(e => new Date(e.date) >= new Date())
-  const highImpact = events.filter(e => e.importance === 'high')
+  const base = upcoming.length ? upcoming : events
+  const filtered = filter === 'all' ? base : base.filter(e => e.importance === filter)
 
   return (
     <div className="fade-in">
@@ -68,19 +68,19 @@ export default function MacroRadar() {
         <div className="card fade-in stagger-1">
           <div className="card-title">📅 Upcoming Events</div>
           <div className="card-value" style={{ color: 'var(--accent-cyan)' }}>{upcoming.length}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>Next 7 days</div>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>From today in the SoSoValue calendar</div>
         </div>
         <div className="card fade-in stagger-2">
           <div className="card-title">🔴 High Impact</div>
           <div className="card-value" style={{ color: 'var(--accent-red)' }}>{highImpact.length}</div>
-          <div className="badge badge-red" style={{ marginTop: 8 }}>Market Moving</div>
+          <div className="badge badge-red" style={{ marginTop: 8 }}>Upcoming · CPI, PCE, Fed, GDP, payrolls</div>
         </div>
         <div className="card fade-in stagger-3">
-          <div className="card-title">⏰ Next Event</div>
+          <div className="card-title">⏰ {next?.importance === 'high' ? 'Next high-impact event' : 'Next event'}</div>
           <div className="card-value" style={{ color: 'var(--accent-yellow)', fontSize: 20 }}>
-            {events[0]?.title?.substring(0, 20) || 'None'}
+            {next?.title || 'None scheduled'}
           </div>
-          <div className="badge badge-yellow" style={{ marginTop: 8 }}>{daysUntil(events[0]?.date)}</div>
+          <div className="badge badge-yellow" style={{ marginTop: 8 }}>{next ? daysUntil(next.date) : '—'}</div>
         </div>
       </div>
 
@@ -91,6 +91,9 @@ export default function MacroRadar() {
         <button className={`tab ${filter === 'medium' ? 'active' : ''}`} onClick={() => setFilter('medium')}>🟡 Medium</button>
         <button className={`tab ${filter === 'low' ? 'active' : ''}`} onClick={() => setFilter('low')}>🟢 Low</button>
       </div>
+
+      {loading && <div className="loading-row"><div className="loading-spinner" /> Loading the SoSoValue macro calendar…</div>}
+      {!loading && filtered.length === 0 && <div className="card">No {filter === 'all' ? '' : `${filter}-impact `}events in the calendar.</div>}
 
       {/* Events Timeline */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -106,7 +109,6 @@ export default function MacroRadar() {
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>{event.title}</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 12 }}>
-                  <span className="badge badge-purple">{event.category}</span>
                   <span style={{ color: 'var(--text-tertiary)' }}>{weekday}</span>
                   {event.previous && (
                     <span style={{ color: 'var(--text-tertiary)' }}>
@@ -133,25 +135,26 @@ export default function MacroRadar() {
 
       {/* Impact Legend */}
       <div className="card" style={{ marginTop: 24 }}>
-        <div className="card-title" style={{ marginBottom: 12 }}>📖 Impact Guide</div>
+        <div className="card-title" style={{ marginBottom: 4 }}>📖 Impact Guide</div>
+        <div className="fine-print" style={{ marginTop: 0, marginBottom: 12 }}>SoSoValue lists event names and dates only. Impact is classified by FinPulse with the rules below (shared with the score engine).</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, fontSize: 12, color: 'var(--text-secondary)' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <div className="event-importance high" /> <span style={{ fontWeight: 600 }}>High Impact</span>
             </div>
-            <span style={{ color: 'var(--text-muted)' }}>CPI, Interest Rates, GDP — expect significant crypto volatility</span>
+            <span style={{ color: 'var(--text-muted)' }}>{IMPACT_RULES.high}. FinPulse cuts signal confidence when one is ≤ 1 day away.</span>
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <div className="event-importance medium" /> <span style={{ fontWeight: 600 }}>Medium Impact</span>
             </div>
-            <span style={{ color: 'var(--text-muted)' }}>PPI, Retail Sales — moderate market influence</span>
+            <span style={{ color: 'var(--text-muted)' }}>{IMPACT_RULES.medium}</span>
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <div className="event-importance low" /> <span style={{ fontWeight: 600 }}>Low Impact</span>
             </div>
-            <span style={{ color: 'var(--text-muted)' }}>Jobless Claims, minor reports — limited direct effect</span>
+            <span style={{ color: 'var(--text-muted)' }}>{IMPACT_RULES.low}</span>
           </div>
         </div>
       </div>

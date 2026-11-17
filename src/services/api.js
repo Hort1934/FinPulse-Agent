@@ -74,8 +74,8 @@ export async function getETFList(params = { symbol: 'BTC', country_code: 'US' })
   return await fetchAPI(`/etfs?${qs}`);
 }
 
-export async function getETFSummaryHistory() {
-  return await fetchAPI('/etfs/summary-history');
+export async function getETFSummaryHistory(symbol = 'BTC', countryCode = 'US') {
+  return await fetchAPI(`/etfs/summary-history?symbol=${symbol}&country_code=${countryCode}`);
 }
 
 export async function getETFMarketSnapshot(ticker) {

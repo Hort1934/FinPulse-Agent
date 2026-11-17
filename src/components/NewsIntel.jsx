@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { getNewsFeed, getHotNews } from '../services/api'
+import { getNewsFeed } from '../services/api'
+import { toneOf } from '../../shared/lexicon.js'
 
 const CATEGORIES = [
   { id: 0, label: 'All', color: '--accent-cyan' },
@@ -12,18 +13,18 @@ const CATEGORIES = [
 
 const CATEGORY_NAMES = { 1: 'news', 2: 'research', 3: 'institution', 4: 'insights', 7: 'announcement', 13: 'news' }
 
-const BULLISH_KEYWORDS = ['surge', 'rally', 'bullish', 'growth', 'record', 'high', 'approve', 'adopt', 'milestone', 'inflow', 'accumulate', 'pump', 'breakout', 'explosive']
-const BEARISH_KEYWORDS = ['crash', 'dump', 'bearish', 'decline', 'warning', 'risk', 'sell', 'outflow', 'hack', 'exploit', 'ban', 'lawsuit', 'fear']
-
+// Same whole-word lexicon as the FinPulse Score news component (shared/lexicon.js).
 function analyzeSentiment(title, content = '') {
-  const text = `${title} ${content}`.toLowerCase()
-  let bullScore = 0, bearScore = 0
-  BULLISH_KEYWORDS.forEach(kw => { if (text.includes(kw)) bullScore++ })
-  BEARISH_KEYWORDS.forEach(kw => { if (text.includes(kw)) bearScore++ })
-  if (bullScore > bearScore) return 'bullish'
-  if (bearScore > bullScore) return 'bearish'
-  return 'neutral'
+  return toneOf(`${title} ${String(content).slice(0, 400)}`).tone
 }
+
+// SoSoValue sometimes returns names as JSON like {"EN": "BULLISH"}.
+function currencyLabel(c) {
+  if (c.symbol) return c.symbol.toUpperCase()
+  try { const n = JSON.parse(c.name); return n.EN || Object.values(n)[0] } catch { return c.name }
+}
+
+const share = (n, total) => (total ? (n / total) * 100 : 0)
 
 function timeAgo(timestamp) {
   const diff = Date.now() - timestamp
@@ -45,7 +46,15 @@ export default function NewsIntel() {
       const params = activeCategory > 0 ? { category: activeCategory } : {}
       const data = await getNewsFeed(params)
       if (data?.list) {
-        setNews(data.list.map(n => ({ ...n, sentiment: analyzeSentiment(n.title, n.content) })))
+        // SoSoValue can return the same story twice (e.g. from two sources); keep the first.
+        const seen = new Set()
+        const unique = data.list.filter(n => {
+          const key = (n.title || n.content || '').trim().toLowerCase().slice(0, 120)
+          if (!key || seen.has(key)) return false
+          seen.add(key)
+          return true
+        })
+        setNews(unique.map(n => ({ ...n, sentiment: analyzeSentiment(n.title, n.content) })))
       }
       setLoading(false)
     }
@@ -74,24 +83,24 @@ export default function NewsIntel() {
       {/* Sentiment Overview */}
       <div className="grid grid-3" style={{ marginBottom: 24 }}>
         <div className="card fade-in stagger-1">
-          <div className="card-title">🟢 Bullish Signals</div>
+          <div className="card-title">🟢 Bullish-toned articles</div>
           <div className="card-value" style={{ color: 'var(--accent-green)' }}>{sentimentStats.bullish}</div>
           <div style={{ marginTop: 8, height: 4, background: 'var(--bg-elevated)', borderRadius: 2, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${(sentimentStats.bullish / news.length) * 100}%`, background: 'var(--accent-green)', borderRadius: 2, transition: 'width 0.5s ease' }} />
+            <div style={{ height: '100%', width: `${share(sentimentStats.bullish, news.length)}%`, background: 'var(--accent-green)', borderRadius: 2, transition: 'width 0.5s ease' }} />
           </div>
         </div>
         <div className="card fade-in stagger-2">
-          <div className="card-title">🔴 Bearish Signals</div>
+          <div className="card-title">🔴 Bearish-toned articles</div>
           <div className="card-value" style={{ color: 'var(--accent-red)' }}>{sentimentStats.bearish}</div>
           <div style={{ marginTop: 8, height: 4, background: 'var(--bg-elevated)', borderRadius: 2, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${(sentimentStats.bearish / news.length) * 100}%`, background: 'var(--accent-red)', borderRadius: 2, transition: 'width 0.5s ease' }} />
+            <div style={{ height: '100%', width: `${share(sentimentStats.bearish, news.length)}%`, background: 'var(--accent-red)', borderRadius: 2, transition: 'width 0.5s ease' }} />
           </div>
         </div>
         <div className="card fade-in stagger-3">
           <div className="card-title">⚪ Neutral</div>
           <div className="card-value" style={{ color: 'var(--text-tertiary)' }}>{sentimentStats.neutral}</div>
           <div style={{ marginTop: 8, height: 4, background: 'var(--bg-elevated)', borderRadius: 2, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${(sentimentStats.neutral / news.length) * 100}%`, background: 'var(--text-muted)', borderRadius: 2, transition: 'width 0.5s ease' }} />
+            <div style={{ height: '100%', width: `${share(sentimentStats.neutral, news.length)}%`, background: 'var(--text-muted)', borderRadius: 2, transition: 'width 0.5s ease' }} />
           </div>
         </div>
       </div>
@@ -131,7 +140,7 @@ export default function NewsIntel() {
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div className="news-tags">
                       {(item.matched_currencies || []).map(c => (
-                        <span key={c.name} className="badge badge-cyan">{c.name}</span>
+                        <span key={c.currency_id || c.name} className="badge badge-cyan">{currencyLabel(c)}</span>
                       ))}
                       {(item.tags || []).slice(0, 3).map(t => (
                         <span key={t} className="news-tag">{t}</span>
@@ -162,16 +171,17 @@ export default function NewsIntel() {
           </div>
 
           <div className="card">
-            <div className="card-title" style={{ marginBottom: 12 }}>📊 Sentiment Distribution</div>
+            <div className="card-title" style={{ marginBottom: 4 }}>📊 Tone Distribution</div>
+            <div className="fine-print" style={{ marginTop: 0 }}>Whole-word bullish/bearish keyword count on the latest {news.length} SoSoValue articles — the same rule the FinPulse Score uses. Not an AI model.</div>
             <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginBottom: 12 }}>
-              <div style={{ width: `${(sentimentStats.bullish / news.length) * 100}%`, background: 'var(--accent-green)', transition: 'width 0.5s ease' }} />
-              <div style={{ width: `${(sentimentStats.neutral / news.length) * 100}%`, background: 'var(--text-muted)', transition: 'width 0.5s ease' }} />
-              <div style={{ width: `${(sentimentStats.bearish / news.length) * 100}%`, background: 'var(--accent-red)', transition: 'width 0.5s ease' }} />
+              <div style={{ width: `${share(sentimentStats.bullish, news.length)}%`, background: 'var(--accent-green)', transition: 'width 0.5s ease' }} />
+              <div style={{ width: `${share(sentimentStats.neutral, news.length)}%`, background: 'var(--text-muted)', transition: 'width 0.5s ease' }} />
+              <div style={{ width: `${share(sentimentStats.bearish, news.length)}%`, background: 'var(--accent-red)', transition: 'width 0.5s ease' }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-tertiary)' }}>
-              <span style={{ color: 'var(--accent-green)' }}>Bullish {Math.round((sentimentStats.bullish / news.length) * 100)}%</span>
-              <span>Neutral {Math.round((sentimentStats.neutral / news.length) * 100)}%</span>
-              <span style={{ color: 'var(--accent-red)' }}>Bearish {Math.round((sentimentStats.bearish / news.length) * 100)}%</span>
+              <span style={{ color: 'var(--accent-green)' }}>Bullish {Math.round(share(sentimentStats.bullish, news.length))}%</span>
+              <span>Neutral {Math.round(share(sentimentStats.neutral, news.length))}%</span>
+              <span style={{ color: 'var(--accent-red)' }}>Bearish {Math.round(share(sentimentStats.bearish, news.length))}%</span>
             </div>
           </div>
         </div>

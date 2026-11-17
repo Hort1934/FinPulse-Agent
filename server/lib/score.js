@@ -5,6 +5,7 @@
 // The AI layer only *explains* this output; it never produces the number.
 
 import { soso, ttlFor } from './sosovalue.js';
+import { toneOf, HIGH_IMPACT } from '../../shared/lexicon.js';
 
 export const UNIVERSE = [
   { symbol: 'BTC', name: 'Bitcoin', id: '1673723677362319866', etf: 'BTC', sector: 'BTC', sodex: 'vBTC_vUSDC', keywords: /\b(bitcoin|btc)\b/i },
@@ -25,9 +26,6 @@ export const WEIGHTS = {
 
 export const THRESHOLD = 25; // |score| >= 25 -> directional stance
 
-const HIGH_IMPACT = /\b(CPI|PCE|FOMC|Fed|Interest Rate|Nonfarm|Payrolls|GDP|Unemployment Rate|Powell)\b/i;
-const BULL = /\b(surg\w*|soar\w*|rall(y|ies|ied)|record high|inflows?|approv\w*|adopt\w*|accumulat\w*|bullish|breakout|gains?|rises?|rebound\w*|upgrade\w*|partnership)\b/gi;
-const BEAR = /\b(plung\w*|crash\w*|drops?|dropped|falls?|fell|outflows?|hack\w*|exploit\w*|leak\w*|sell-?off|bearish|liquidat\w*|lawsuit|bans?|banned|reject\w*|declin\w*|slump\w*|fraud|investigation|delist\w*)\b/gi;
 
 const DAY = 86_400_000;
 const mean = a => a.reduce((s, x) => s + x, 0) / a.length;
@@ -87,7 +85,7 @@ function newsComponent(articles, re) {
     const text = `${a.title} ${(a.content || '').slice(0, 400)}`;
     if (!re.test(text)) continue;
     n++;
-    const b = (text.match(BULL) || []).length, r = (text.match(BEAR) || []).length;
+    const { bull: b, bear: r } = toneOf(text);
     bull += b; bear += r;
     if (hits.length < 3) hits.push({ title: a.title, link: a.source_link, tone: b > r ? 'bullish' : r > b ? 'bearish' : 'neutral' });
   }

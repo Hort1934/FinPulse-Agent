@@ -1393,6 +1393,16 @@ input:focus, textarea:focus, select:focus {
 .checks li.ok span { color: var(--accent-green); }
 .checks li.warn { color: var(--accent-yellow); }
 .checks li.block { color: var(--accent-red); }
+.bench-table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: var(--font-mono); margin-top: 6px; }
+.bench-table th { text-align: right; font-size: 10px; color: var(--text-muted); font-weight: 600; padding: 2px 4px; font-family: inherit; }
+.bench-table td { text-align: right; padding: 3px 4px; border-top: 1px solid var(--border-primary); }
+.bench-table td:first-child, .bench-table th:first-child { text-align: left; color: var(--text-tertiary); }
+.pf-controls { display: flex; gap: 16px; flex-wrap: wrap; justify-content: space-between; }
+.pf-group { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; flex: 1; min-width: 260px; }
+.roi-bars { display: flex; flex-direction: column; gap: 10px; }
+.roi-row { display: flex; align-items: center; gap: 12px; font-size: 12px; }
+.roi-label { width: 36px; color: var(--text-tertiary); font-family: var(--font-mono); }
+.roi-value { width: 70px; text-align: right; font-family: var(--font-mono); font-weight: 700; }
 .xl-list { display: flex; flex-direction: column; gap: 12px; }
 .xl-card { background: var(--bg-card); border: 1px solid var(--border-primary); border-radius: var(--radius-lg); padding: 14px 16px; }
 .xl-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 13px; gap: 8px; flex-wrap: wrap; }
