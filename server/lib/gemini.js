@@ -1,4 +1,4 @@
-const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 
 export function geminiKey() {
   const k = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
