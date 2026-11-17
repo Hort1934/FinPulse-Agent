@@ -38,6 +38,33 @@ export const spotOrders = addr => get(`/spot/accounts/${addr}/orders`);
 
 const decimals = step => (String(step).split('.')[1] || '').replace(/0+$/, '').length;
 const floorTo = (x, step) => Math.floor(x / Number(step) + 1e-9) * Number(step);
+// SoDEX rejects decimal strings with trailing zeros ("0.4060" fails, "0.406" works).
+export const trimDecimal = s => (s.includes('.') ? s.replace(/0+$/, '').replace(/\.$/, '') : s);
+
+// ---------- signed-request relay (signatures are produced in the user's browser) ----------
+
+async function send(method, path, body, headers = {}) {
+  const res = await fetch(`${NET.gateway}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...headers },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => ({ code: -1, error: `HTTP ${res.status} with non-JSON body` }));
+  return { status: res.status, json };
+}
+
+/** addAPIKey / revokeAPIKey envelopes, signed by the master wallet. */
+export const submitExchange = (engine, envelope) => send('POST', `/${engine}/exchange`, envelope);
+
+/** Spot batch new order, signed by the session API key. */
+export const submitSpotOrders = (params, { key, sign, nonce }) => send('POST', '/spot/trade/orders/batch', params, {
+  'X-API-Key': key, 'X-API-Sign': sign, 'X-API-Nonce': String(nonce), 'X-API-Chain': String(NET.chainId),
+});
+
+export const apiKeys = (address, accountID, name) => {
+  const qs = new URLSearchParams({ accountID: String(accountID), ...(name ? { name } : {}) });
+  return get(`/user/${address}/api-keys?${qs}`);
+};
 
 /** Walk the book to fill `usd` of quote (buy) or `usd` worth of base (sell). */
 export function simulateFill(book, side, usd) {
@@ -61,11 +88,22 @@ export async function preview({ symbol, side, usd, address, signal, eventRisk })
   const m = symbols.find(s => s.name === symbol);
   if (!m) throw new Error(`Unknown SoDEX spot market ${symbol}`);
   const [book, t] = await Promise.all([orderbook(symbol), ticker(symbol).catch(() => null)]);
-  const bestBid = Number(book.bids[0]?.[0]), bestAsk = Number(book.asks[0]?.[0]);
-  const mid = (bestBid + bestAsk) / 2;
-  const spreadPct = ((bestAsk - bestBid) / mid) * 100;
+  const bestBid = book.bids.length ? Number(book.bids[0][0]) : null;
+  const bestAsk = book.asks.length ? Number(book.asks[0][0]) : null;
+  const twoSided = bestBid != null && bestAsk != null;
+  const mid = twoSided ? (bestBid + bestAsk) / 2 : (bestBid ?? bestAsk);
+  const spreadPct = twoSided ? ((bestAsk - bestBid) / mid) * 100 : null;
   const fill = simulateFill(book, side, usd);
-  const slippagePct = fill.avgPrice ? Math.abs(fill.avgPrice / mid - 1) * 100 : null;
+  const slippagePct = fill.avgPrice && mid ? Math.abs(fill.avgPrice / mid - 1) * 100 : null;
+  if (!mid) {
+    return {
+      network: sodexNetwork().name, chainId: NET.chainId,
+      market: { symbol: m.name, symbolID: m.id, base: m.baseCoin, quote: m.quoteCoin, tickSize: m.tickSize, stepSize: m.stepSize, takerFee: Number(m.takerFee) },
+      book: { bestBid, bestAsk, mid: null, spreadPct: null, blockHeight: book.blockHeight, lastPx: t ? Number(t.lastPx) : null },
+      fill, order: null, account: null, limits: RISK_LIMITS, blocked: true,
+      checks: [{ id: 'liquidity', ok: false, level: 'block', message: `The SoDEX ${sodexNetwork().name} order book for ${m.name} is empty — there is nothing to trade against.` }],
+    };
+  }
   const takerFee = Number(m.takerFee);
 
   let balances = null, quoteFree = null, baseFree = null, accountID = null;
@@ -90,7 +128,9 @@ export async function preview({ symbol, side, usd, address, signal, eventRisk })
   const add = (id, ok, level, message) => checks.push({ id, ok, level, message });
   add('minNotional', usd >= Number(m.minNotional), 'block', `Minimum order is ${m.minNotional} ${m.quoteCoin}`);
   add('minQty', quantity >= Number(m.minQuantity), 'block', `Quantity ${quantity.toFixed(qtyDec)} vs minimum ${m.minQuantity}`);
-  add('spread', spreadPct <= RISK_LIMITS.maxSpreadPct, 'block', `Spread ${spreadPct.toFixed(3)}% (limit ${RISK_LIMITS.maxSpreadPct}%)`);
+  add('spread', spreadPct != null && spreadPct <= RISK_LIMITS.maxSpreadPct, 'block', spreadPct == null
+    ? `One-sided book: no ${bestBid == null ? 'bids' : 'asks'} on SoDEX ${sodexNetwork().name}`
+    : `Spread ${spreadPct.toFixed(3)}% (limit ${RISK_LIMITS.maxSpreadPct}%)`);
   add('depth', fill.unfilledUsd < 0.01, 'block', fill.unfilledUsd < 0.01 ? `Book depth covers the order across ${fill.levelsUsed} level(s)` : `Book only has ${fill.filledUsd.toFixed(2)} USD on the ${side === 'buy' ? 'ask' : 'bid'} side`);
   add('slippage', slippagePct != null && slippagePct <= RISK_LIMITS.maxSlippagePct, 'block', `Expected slippage ${slippagePct?.toFixed(3) ?? '—'}% (limit ${RISK_LIMITS.maxSlippagePct}%)`);
   if (address) {
@@ -112,7 +152,8 @@ export async function preview({ symbol, side, usd, address, signal, eventRisk })
     fill: { ...fill, slippagePct, estFee: fill.filledUsd * takerFee },
     order: {
       side, type: 'LIMIT', timeInForce: 'IOC',
-      price: limitPrice.toFixed(pxDec), quantity: quantity.toFixed(qtyDec),
+      price: trimDecimal(limitPrice.toFixed(pxDec)), quantity: trimDecimal(quantity.toFixed(qtyDec)),
+      symbolID: m.id, pricedAt: Date.now(),
       note: `IOC limit at ${RISK_LIMITS.maxSlippagePct}% from mid: the exchange rejects any fill worse than this.`,
     },
     account: address ? { address, accountID, balances } : null,

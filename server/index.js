@@ -6,7 +6,8 @@ import { soso, ttlFor, apiKey, SoSoError } from './lib/sosovalue.js';
 import { computeSignals, UNIVERSE } from './lib/score.js';
 import { syncLedger, ledgerSummary } from './lib/ledger.js';
 import { generate, geminiKey } from './lib/gemini.js';
-import { preview, spotBalances, spotOrders, accountInfo, sodexNetwork } from './lib/sodex.js';
+import { preview, spotBalances, spotOrders, accountInfo, sodexNetwork, submitExchange, submitSpotOrders, apiKeys } from './lib/sodex.js';
+import { recordExecution, listExecutions } from './lib/executions.js';
 
 dotenv.config();
 
@@ -75,6 +76,81 @@ app.get('/api/sodex/account/:address', async (req, res) => {
   } catch (err) {
     res.status(502).json({ error: err.message });
   }
+});
+
+// ---------- SoDEX signed-request relay ----------
+// The browser signs; the server only forwards. It validates shape so it can
+// never be used as an open proxy, and it never sees a private key.
+
+const NAME_RE = /^[0-9a-zA-Z_-]{1,36}$/;
+const HEX_SIG_RE = /^0x0[12][0-9a-fA-F]{130}$/;
+const DEC_RE = /^\d+(\.\d*[1-9])?$/;
+const isUint = v => Number.isSafeInteger(v) && v >= 0;
+
+app.get('/api/sodex/api-keys/:address', async (req, res) => {
+  const { address } = req.params;
+  const accountID = Number(req.query.accountID);
+  if (!ADDRESS_RE.test(address) || !isUint(accountID)) return res.status(400).json({ error: 'address and accountID required' });
+  if (req.query.name && !NAME_RE.test(req.query.name)) return res.status(400).json({ error: 'invalid key name' });
+  try { res.json(await apiKeys(address, accountID, req.query.name)); } catch (err) { res.status(502).json({ error: err.message }); }
+});
+
+app.post('/api/sodex/exchange/:engine', async (req, res) => {
+  const { engine } = req.params;
+  const e = req.body || {};
+  const p = e.params || {};
+  if (!['spot', 'perps'].includes(engine)) return res.status(400).json({ error: 'engine must be spot or perps' });
+  if (e.type !== 'addAPIKey' || !isUint(e.nonce) || !isUint(e.signatureChainID) || !HEX_SIG_RE.test(e.signature)
+    || !isUint(p.accountID) || !NAME_RE.test(p.name || '') || p.name === 'default' || p.type !== 1
+    || !ADDRESS_RE.test(p.publicKey || '') || !isUint(p.expiresAt)) {
+    return res.status(400).json({ error: 'malformed addAPIKey envelope' });
+  }
+  const envelope = {
+    type: 'addAPIKey',
+    params: { accountID: p.accountID, name: p.name, type: 1, publicKey: p.publicKey, expiresAt: p.expiresAt },
+    nonce: e.nonce, signature: e.signature, signatureChainID: e.signatureChainID,
+  };
+  try {
+    const { json } = await submitExchange(engine, envelope);
+    res.status(json.code === 0 ? 200 : 502).json(json);
+  } catch (err) { res.status(502).json({ error: err.message }); }
+});
+
+/** Canonical spot batchNewOrder params (Go struct field order). The browser builds the same object before signing. */
+function canonicalSpotOrder(p) {
+  if (!isUint(p?.accountID) || !Array.isArray(p.orders) || p.orders.length !== 1) return null;
+  const o = p.orders[0];
+  if (!isUint(o.symbolID) || !NAME_RE.test(o.clOrdID || '') || ![1, 2].includes(o.side) || ![1, 2].includes(o.type)
+    || ![1, 2, 3, 4].includes(o.timeInForce) || (o.price !== undefined && !DEC_RE.test(o.price)) || !DEC_RE.test(o.quantity || '')) return null;
+  const item = { symbolID: o.symbolID, clOrdID: o.clOrdID, side: o.side, type: o.type, timeInForce: o.timeInForce };
+  if (o.price !== undefined) item.price = o.price;
+  item.quantity = o.quantity;
+  return { accountID: p.accountID, orders: [item] };
+}
+
+app.post('/api/sodex/orders', async (req, res) => {
+  const { params, auth, context } = req.body || {};
+  const canon = canonicalSpotOrder(params);
+  if (!canon) return res.status(400).json({ error: 'malformed order' });
+  if (!NAME_RE.test(auth?.key || '') || !HEX_SIG_RE.test(auth?.sign || '') || !isUint(auth?.nonce)) return res.status(400).json({ error: 'malformed signature headers' });
+  try {
+    const { status, json } = await submitSpotOrders(canon, auth);
+    recordExecution({
+      address: ADDRESS_RE.test(context?.address || '') ? context.address : null,
+      symbol: String(context?.symbol || '').slice(0, 32),
+      signal: context?.signal ? { score: Number(context.signal.score), stance: String(context.signal.stance).slice(0, 16) } : null,
+      expected: context?.expected ? { avgPrice: Number(context.expected.avgPrice), slippagePct: Number(context.expected.slippagePct) } : null,
+      order: canon.orders[0], nonce: auth.nonce, keyName: auth.key,
+      httpStatus: status, response: json,
+    });
+    res.status(json.code === 0 ? 200 : 502).json(json);
+  } catch (err) { res.status(502).json({ error: err.message }); }
+});
+
+app.get('/api/sodex/executions', (req, res) => {
+  const { address } = req.query;
+  if (address && !ADDRESS_RE.test(address)) return res.status(400).json({ error: 'invalid address' });
+  res.json(listExecutions(address));
 });
 
 // ---------- AI agent ----------
