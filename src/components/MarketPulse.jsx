@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
-import { getMarketSnapshot, getSectorSpotlight } from '../services/api'
+import { getMarketSnapshot, getSectorSpotlight, getSignals } from '../services/api'
 
 function formatNumber(num) {
+  if (num == null || !Number.isFinite(num)) return '—'
   if (num >= 1e12) return `$${(num / 1e12).toFixed(2)}T`
   if (num >= 1e9) return `$${(num / 1e9).toFixed(2)}B`
   if (num >= 1e6) return `$${(num / 1e6).toFixed(2)}M`
@@ -15,7 +16,7 @@ function formatPrice(price) {
   return price.toFixed(4)
 }
 
-function FearGreedGauge({ value }) {
+function FearGreedGauge({ value, caption }) {
   const angle = 180 + (value / 100) * 180
   const getColor = (v) => {
     if (v < 25) return '#ef4444'
@@ -52,6 +53,7 @@ function FearGreedGauge({ value }) {
       </svg>
       <div className="gauge-value" style={{ color }}>{value}</div>
       <div className="gauge-label">{getLabel(value)}</div>
+      {caption && <div className="fine-print" style={{ textAlign: 'center', maxWidth: 220 }}>{caption}</div>}
     </div>
   )
 }
@@ -83,57 +85,59 @@ function Particles() {
   )
 }
 
+const TOP_COINS = [
+  { id: '1673723677362319866', symbol: 'BTC', name: 'Bitcoin' },
+  { id: '1673723677362319867', symbol: 'ETH', name: 'Ethereum' },
+  { id: '1673723677362319875', symbol: 'SOL', name: 'Solana' },
+  { id: '1673723677362319869', symbol: 'BNB', name: 'BNB' },
+  { id: '1673723677362319871', symbol: 'XRP', name: 'XRP' },
+  { id: '1673723677362319873', symbol: 'ADA', name: 'Cardano' },
+  { id: '1673723677362319883', symbol: 'AVAX', name: 'Avalanche' },
+  { id: '1673723677362319877', symbol: 'DOT', name: 'Polkadot' },
+]
+
 export default function MarketPulse() {
   const [marketData, setMarketData] = useState([])
   const [sectors, setSectors] = useState([])
+  const [dominance, setDominance] = useState({})
+  const [sentiment, setSentiment] = useState(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    let alive = true
     async function load() {
-      // 1. Fetch sectors
-      const sectorData = await getSectorSpotlight()
-      if (sectorData) {
-        const sectorArray = Array.isArray(sectorData) ? sectorData : (sectorData.sector || [])
-        setSectors(sectorArray.map(s => ({
-          name: s.name,
-          change: s.change_pct_24h !== undefined ? (s.change_pct_24h * 100).toFixed(2) : s.change
-        })))
-      }
-
-      // 2. Fetch top 8 coins sequentially (using cached backend)
-      const topCoins = [
-        { id: '1673723677362319866', symbol: 'BTC' },
-        { id: '1673723677362319867', symbol: 'ETH' },
-        { id: '1673723677362319875', symbol: 'SOL' },
-        { id: '1673723677362319869', symbol: 'BNB' },
-        { id: '1673723677362319871', symbol: 'XRP' },
-        { id: '1673723677362319873', symbol: 'ADA' },
-        { id: '1673723677362319883', symbol: 'AVAX' },
-        { id: '1673723677362319877', symbol: 'DOT' }
-      ]
-      
-      const realMarketData = []
-      for (const coin of topCoins) {
-        const snap = await getMarketSnapshot(coin.id)
-        if (snap) {
-          realMarketData.push({
-            id: coin.id,
-            name: coin.symbol,
-            price: snap.price || 0,
-            change: (snap.change_pct_24h || 0) * 100,
-            marketCap: snap.marketcap || 0,
-            volume: snap.turnover_24h || 0,
-          })
-        }
-      }
-      if (realMarketData.length > 0) setMarketData(realMarketData)
+      const [sectorData, snaps] = await Promise.all([
+        getSectorSpotlight(),
+        Promise.all(TOP_COINS.map(c => getMarketSnapshot(c.id).then(s => ({ c, s })).catch(() => ({ c, s: null })))),
+      ])
+      if (!alive) return
+      const sectorArray = Array.isArray(sectorData) ? sectorData : (sectorData?.sector || [])
+      setSectors(sectorArray.map(s => ({ name: s.name, change: Number(((s.change_pct_24h ?? 0) * 100).toFixed(2)) })))
+      setDominance(Object.fromEntries(sectorArray.map(s => [s.name, s.marketcap_dom])))
+      setMarketData(snaps.filter(x => x.s && x.s.price).map(({ c, s }) => ({
+        id: c.id, name: c.symbol, fullName: c.name,
+        price: s.price, change: (s.change_pct_24h || 0) * 100,
+        marketCap: s.marketcap || 0, volume: s.turnover_24h || 0,
+      })))
+      setLoading(false)
     }
     load()
+    // Sentiment gauge = average FinPulse Score, not a random number.
+    getSignals({ record: false }).then(s => {
+      const scored = s.assets.filter(a => a.score != null)
+      if (alive && scored.length) setSentiment(Math.round(scored.reduce((t, a) => t + a.score, 0) / scored.length))
+    }).catch(() => {})
+    return () => { alive = false }
   }, [])
 
-  const totalMcap = marketData.reduce((s, c) => s + c.marketCap, 0)
-  const totalVol = marketData.reduce((s, c) => s + c.volume, 0)
-  const avgChange = marketData.length ? marketData.reduce((s, c) => s + c.change, 0) / marketData.length : 0
-  const fearGreed = Math.round(50 + avgChange * 8 + (marketData.length ? Math.random() * 5 : 0))
+  const btc = marketData.find(c => c.name === 'BTC')
+  const btcDom = dominance.BTC
+  // Whole-market cap derived from BTC market cap and BTC dominance (both SoSoValue).
+  const totalMcap = btc && btcDom ? btc.marketCap / btcDom : null
+  const trackedVol = marketData.reduce((s, c) => s + c.volume, 0)
+  const trackedMcap = marketData.reduce((s, c) => s + c.marketCap, 0)
+  const mcapWeightedChange = trackedMcap ? marketData.reduce((s, c) => s + c.change * c.marketCap, 0) / trackedMcap : null
+  const gauge = sentiment == null ? null : Math.round((sentiment + 100) / 2)
 
   return (
     <div className="fade-in" style={{ position: 'relative' }}>
@@ -158,36 +162,40 @@ export default function MarketPulse() {
       <div className="grid grid-4" style={{ marginBottom: 16 }}>
         <div className="card fade-in stagger-1">
           <div className="card-title">📈 Total Market Cap</div>
-          <div className="card-value" style={{ color: 'var(--accent-cyan)' }}>{formatNumber(totalMcap)}</div>
-          <div className={`card-change ${avgChange >= 0 ? 'positive' : 'negative'}`} style={{ marginTop: 8 }}>
-            {avgChange >= 0 ? '▲' : '▼'} {Math.abs(avgChange).toFixed(2)}%
-          </div>
+          <div className="card-value" style={{ color: 'var(--accent-cyan)' }}>{loading ? '…' : formatNumber(totalMcap)}</div>
+          {mcapWeightedChange != null && (
+            <div className={`card-change ${mcapWeightedChange >= 0 ? 'positive' : 'negative'}`} style={{ marginTop: 8 }} title="Market-cap-weighted 24h change of the 8 tracked assets">
+              {mcapWeightedChange >= 0 ? '▲' : '▼'} {Math.abs(mcapWeightedChange).toFixed(2)}% (top 8, 24h)
+            </div>
+          )}
         </div>
         <div className="card fade-in stagger-2">
-          <div className="card-title">💰 24h Volume</div>
-          <div className="card-value" style={{ color: 'var(--accent-blue)' }}>{formatNumber(totalVol)}</div>
-          <div className="stat-pill" style={{ marginTop: 8 }}>
-            <span>Turnover</span> <span className="stat-value">4.2%</span>
-          </div>
+          <div className="card-title">💰 24h Volume · top 8</div>
+          <div className="card-value" style={{ color: 'var(--accent-blue)' }}>{loading ? '…' : formatNumber(trackedVol)}</div>
+          {trackedMcap > 0 && (
+            <div className="stat-pill" style={{ marginTop: 8 }}>
+              <span>Turnover</span> <span className="stat-value">{((trackedVol / trackedMcap) * 100).toFixed(1)}%</span>
+            </div>
+          )}
         </div>
         <div className="card fade-in stagger-3">
           <div className="card-title">🏆 BTC Dominance</div>
-          <div className="card-value" style={{ color: 'var(--accent-yellow)' }}>62.4%</div>
-          <div className="card-change positive" style={{ marginTop: 8 }}>▲ 0.3%</div>
+          <div className="card-value" style={{ color: 'var(--accent-yellow)' }}>{btcDom == null ? (loading ? '…' : '—') : `${(btcDom * 100).toFixed(1)}%`}</div>
+          {dominance.ETH != null && <div className="stat-pill" style={{ marginTop: 8 }}><span>ETH</span> <span className="stat-value">{(dominance.ETH * 100).toFixed(1)}%</span></div>}
         </div>
         <div className="card fade-in stagger-4">
-          <div className="card-title">🔥 Active Pairs</div>
-          <div className="card-value" style={{ color: 'var(--accent-purple)' }}>14,892</div>
-          <div className="stat-pill" style={{ marginTop: 8 }}>
-            <span>New</span> <span className="stat-value">+127</span>
-          </div>
+          <div className="card-title">🪙 Stablecoin Share</div>
+          <div className="card-value" style={{ color: 'var(--accent-purple)' }}>{dominance.StableCoin == null ? (loading ? '…' : '—') : `${(dominance.StableCoin * 100).toFixed(1)}%`}</div>
+          <div className="stat-pill" style={{ marginTop: 8 }}><span>of total market cap</span></div>
         </div>
       </div>
 
       {/* Fear & Greed + Top Assets */}
       <div className="grid grid-3" style={{ marginBottom: 16 }}>
         <div className="card fade-in stagger-3" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <FearGreedGauge value={fearGreed} />
+          {gauge == null
+            ? <div className="loading-row"><div className="loading-spinner" /> Scoring market…</div>
+            : <FearGreedGauge value={gauge} caption={`Average FinPulse Score ${sentiment > 0 ? '+' : ''}${sentiment} across BTC, ETH, SOL, XRP, BNB`} />}
         </div>
 
         <div className="card fade-in stagger-4" style={{ gridColumn: 'span 2' }}>
