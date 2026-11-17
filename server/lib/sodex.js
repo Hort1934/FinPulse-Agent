@@ -64,9 +64,12 @@ export const submitSpotOrders = (params, { key, sign, nonce }) => send('POST', '
 const fillsCache = new Map(); // orderID -> fills (immutable once the IOC order is done)
 export async function orderFills(address, orderID) {
   if (fillsCache.has(orderID)) return fillsCache.get(orderID);
-  const fills = await get(`/spot/accounts/${address}/trades?orderID=${orderID}`);
-  if (fills?.length) fillsCache.set(orderID, fills);
-  return fills || [];
+  // The testnet gateway ignores the orderID query and returns the account's recent
+  // trades, so match on orderID here; otherwise fills of other orders get summed in.
+  const trades = await get(`/spot/accounts/${address}/trades?orderID=${orderID}`);
+  const fills = (trades || []).filter(t => String(t.orderID) === String(orderID));
+  if (fills.length) fillsCache.set(orderID, fills);
+  return fills;
 }
 
 export const apiKeys = (address, accountID, name) => {
