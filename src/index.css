@@ -1393,6 +1393,18 @@ input:focus, textarea:focus, select:focus {
 .checks li.ok span { color: var(--accent-green); }
 .checks li.warn { color: var(--accent-yellow); }
 .checks li.block { color: var(--accent-red); }
+.xl-list { display: flex; flex-direction: column; gap: 12px; }
+.xl-card { background: var(--bg-card); border: 1px solid var(--border-primary); border-radius: var(--radius-lg); padding: 14px 16px; }
+.xl-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 13px; gap: 8px; flex-wrap: wrap; }
+.xl-chain { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.xl-step { background: var(--bg-elevated); border-radius: var(--radius-sm); padding: 8px 10px; border-top: 2px solid var(--border-hover); font-size: 12px; line-height: 1.5; min-width: 0; }
+.xl-step.ok { border-top-color: var(--accent-green); }
+.xl-step.warn { border-top-color: var(--accent-yellow); }
+.xl-step.bad { border-top-color: var(--accent-red); }
+.xl-step-label { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); margin-bottom: 4px; }
+.xl-step-body { font-family: var(--font-mono); word-break: break-word; }
+.xl-step code { font-size: 11px; color: var(--accent-cyan); }
+.xl-note { font-family: inherit; font-size: 10px; color: var(--text-muted); margin-top: 2px; }
 .ack { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: var(--accent-yellow); margin-bottom: 10px; cursor: pointer; }
 .ack input { margin-top: 2px; }
 .exec-result { display: flex; flex-direction: column; gap: 8px; }
