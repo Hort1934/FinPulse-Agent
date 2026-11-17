@@ -25,7 +25,7 @@ The order follows the judging criteria: practical value → working demo → log
 
 ## 0:15–0:35 · Data honesty
 
-**Show:** point at the **LIVE** badge in the header, then hover or click it to show the sources.
+**Show:** point at the **LIVE** badge in the header, then click it to open the list of sources.
 
 > "Every number on screen comes from the SoSoValue API, and every widget says whether it is live, cached or simulated. No placeholder numbers. If a source fails, you see a dash, not a guess."
 
