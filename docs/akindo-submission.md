@@ -84,7 +84,7 @@ The app is deployed at https://35-192-142-253.sslip.io. One Node process serves 
 **4. "No distinct methodology or validated signals"**
 
 - **Methodology.** The FinPulse Score formula, weights, threshold and confidence model are published in the app and in the README.
-- **Walk-forward backtest.** Each day is scored only with data available on that day. Results are compared with a naive strategy that has the same long/short mix in the same market:
+- **Walk-forward backtest.** Each day is scored only with data available on that day. Results are compared with a naive strategy that has the same long/short mix in the same market. Snapshot from 17 Nov 2026; the window rolls daily, and the current figures are on Signal Desk → Track record:
 
   | Horizon | Hit rate | Naive strategy | Edge |
   |---|---|---|---|

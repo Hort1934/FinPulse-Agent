@@ -86,6 +86,8 @@ Each component is mapped to **[−1, +1]** with `tanh` after volatility normalis
 
 Sector and news have no history in the API, so the backtest uses ETF flow, momentum, trend and participation.
 
+The window rolls forward every day (the last ~120 daily candles), so the numbers move. The table is a snapshot from 17 Nov 2026; the current figures are always on Signal Desk → Track record and in `/api/signals`.
+
 | Horizon | Signals | Hit rate | Naive baseline* | **Edge** | Avg signed return |
 |---|---|---|---|---|---|
 | 1 day | 108 | 58.3% | 54.7% | **+3.6 pp** | +1.0% |
@@ -140,7 +142,7 @@ Signal Desk ──▶ Trade ticket ──▶ Risk checks ──▶ Wallet signs 
 | Order | BUY 0.0003 · IOC limit 65 036 |
 | Order ID | **1305574701** |
 | Expected / actual fill | 64 712 / **64 712** |
-| Second order (from the live demo) | **1305601780**: BUY 0.00031, expected 64 362, filled **64 369** (+0.011%) |
+| Orders from the live demo | **1305601780**: expected 64 362, filled **64 369** · **1305606306**: expected 64 256, filled **64 259** · **1305610534**: expected 64 218, filled **64 212**. All BUY 0.00031, all within 0.011% of the preview |
 
 > Testnet note: only `vBTC_vUSDC` currently has a two-sided book on SoDEX testnet. For the other markets, the ticket shows the liquidity block instead of a misleading price.
 
