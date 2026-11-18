@@ -42,7 +42,7 @@ The order follows the judging criteria: practical value → working demo → log
 
 **Show:** the **Track record** tab. Point at the **Edge** column, then at the ledger.
 
-> "Does it work? We ran a walk-forward backtest, where each day only sees the data available on that day. We compare it with a random strategy that has the same mix of longs and shorts. The edge is plus 3.6 points at one day and about plus 6 points at three and seven days. It's modest, and we say so. The raw hit rate looks higher only because the market fell.
+> "Does it work? We ran a walk-forward backtest, where each day only sees the data available on that day. We compare it with a random strategy that has the same mix of longs and shorts. At one day the edge is close to zero; at three and seven days it is a few points positive. Read the numbers on screen. It's modest, and we say so. The raw hit rate looks higher only because the market fell.
 > On the live server, every signal is also logged and graded at 24 hours, 3 days and 7 days, so the track record builds itself."
 
 ## 1:40–2:00 · Risk checks that say no (BNB)
