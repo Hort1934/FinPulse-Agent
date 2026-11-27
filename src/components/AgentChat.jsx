@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { sendChatMessage } from '../services/api'
+import { sendChatMessage, getSignals } from '../services/api'
 
 const SUGGESTIONS = [
   "Why is BTC's FinPulse Score where it is?",
@@ -22,6 +22,10 @@ export default function AgentChat() {
   const [loading, setLoading] = useState(false)
   const messagesEndRef = useRef(null)
   const inputRef = useRef(null)
+
+  // The analyst answers from the desk's signals; load them so the header badge
+  // reports the state of that data (memoized on the server, so this is cheap).
+  useEffect(() => { getSignals().catch(() => {}) }, [])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
