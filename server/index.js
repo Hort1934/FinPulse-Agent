@@ -265,6 +265,15 @@ app.listen(PORT, () => {
   console.log(`   SoDEX:     ${sodexNetwork().name} (${sodexNetwork().gateway})\n`);
 });
 
+// ---------- ledger clock ----------
+// Record and grade signals every hour even when nobody has the app open, so each
+// horizon is graded within an hour of maturity instead of at the next page view.
+if (apiKey()) {
+  const tick = () => signalsWithLedger(true).catch(err => console.error('Ledger tick failed:', err.message));
+  setTimeout(tick, 60_000);
+  setInterval(tick, 60 * 60_000);
+}
+
 // ---------- Telegram bot ----------
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 if (TELEGRAM_TOKEN) {
